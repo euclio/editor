@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use euclid::Point2D;
+use euclid::{Box2D, Point2D};
 use futures::stream::{self, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use log::*;
@@ -14,11 +14,18 @@ use crate::lsp::ToUri;
 use crate::syntax::Syntax;
 use crate::ui::{Bounds, Color, Context, Coordinates, Drawable};
 
+mod highlight;
+
+use highlight::Highlighter;
+
 /// Unit for buffer-internal positions and lengths.
 pub struct BufferSpace;
 
-/// Cursor position within a buffer.
-pub type Cursor = Point2D<u16, BufferSpace>;
+/// A position within a buffer.
+pub type Position = Point2D<usize, BufferSpace>;
+
+/// A rectangular area of text.
+pub type Span = Box2D<usize, BufferSpace>;
 
 /// Container for all open buffers.
 ///
@@ -70,21 +77,24 @@ pub struct Buffer {
     lines: Vec<String>,
 
     /// The cursor position within the buffer. May or may not correspond to the on-screen cursor.
-    pub cursor: Cursor,
+    pub cursor: Position,
 
     /// Syntax associated with the buffer.
     ///
     /// `None` if unknown or plain-text.
     pub syntax: Option<Syntax>,
+
+    highlighter: Highlighter,
 }
 
 impl Buffer {
     pub fn new() -> Self {
         Buffer {
             path: None,
-            cursor: Cursor::default(),
+            cursor: Position::default(),
             lines: vec![String::new()],
             syntax: None,
+            highlighter: Highlighter::new(None),
         }
     }
 
@@ -97,10 +107,11 @@ impl Buffer {
         info!("syntax identified: {:?}", syntax);
 
         Ok(Buffer {
-            cursor: Cursor::default(),
+            cursor: Position::default(),
             lines: reader.lines().try_collect().await?,
             path: Some(path),
             syntax,
+            highlighter: Highlighter::new(syntax),
         })
     }
 
@@ -127,16 +138,29 @@ impl Default for Buffer {
 impl<'a> From<&'a str> for Buffer {
     fn from(s: &str) -> Self {
         Buffer {
-            cursor: Cursor::default(),
+            cursor: Position::default(),
             syntax: None,
             lines: s.lines().map(|line| line.to_owned()).collect(),
             path: None,
+            highlighter: Highlighter::new(None),
         }
     }
 }
 
 impl Drawable for Buffer {
     fn draw(&self, ctx: &mut Context<'_>) {
+        let tilde = String::from("~");
+
+        for (row, line) in self
+            .lines
+            .iter()
+            .pad_using(ctx.bounds.height().into(), |_| &tilde)
+            .enumerate()
+            .take(ctx.bounds.height().into())
+        {
+            ctx.screen.write(Coordinates::new(0, row as u16), line);
+        }
+
         let tilde = String::from("~");
 
         for (row, line) in self
@@ -157,6 +181,19 @@ impl Drawable for Buffer {
 
             ctx.screen.apply_color(bounds, Color::BLUE);
         }
+
+        self.highlighter.highlights(
+            &self,
+            Span::from_untyped(&ctx.bounds.to_untyped().cast::<usize>()),
+            |span, color| {
+                let bounds = Bounds::new(
+                    Coordinates::new(span.min.x as u16, span.min.y as u16),
+                    Coordinates::new(span.max.x as u16, span.max.y as u16),
+                );
+
+                ctx.screen.apply_color(bounds, color)
+            },
+        );
     }
 }
 

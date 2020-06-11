@@ -1,0 +1,6 @@
+[submodule "tree-sitter-languages/vendor/tree-sitter-rust"]
+	path = tree-sitter-languages/vendor/tree-sitter-rust
+	url = git@github.com:tree-sitter/tree-sitter-rust.git
+[submodule "tree-sitter-languages/vendor/javascript"]
+	path = tree-sitter-languages/vendor/tree-sitter-javascript
+	url = git@github.com:tree-sitter/tree-sitter-javascript.git

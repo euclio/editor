@@ -62,8 +62,9 @@ impl Screen {
 
     /// Apply a color to cells within a rectangular region.
     pub fn apply_color(&mut self, bounds: Bounds, color: Color) {
+        // FIXME: I think there's an off-by-one here if the highlight is on the last line.
         for y in bounds.min.y..=bounds.max.y {
-            for x in bounds.min.x..=bounds.max.x {
+            for x in bounds.min.x..bounds.max.x {
                 self[(y, x)].color = Some(color);
             }
         }
@@ -180,12 +181,12 @@ mod tests {
 
     #[test]
     fn apply_color() {
-        let mut buf = Screen::new(Size::new(3, 3));
+        let mut buf = Screen::new(Size::new(5, 5));
         let bounds = Bounds::new(Coordinates::new(1, 1), Coordinates::new(2, 1));
         buf.apply_color(bounds, Color::BLUE);
 
         assert_eq!(buf[(0, 0)].color, None);
         assert_eq!(buf[(1, 1)].color, Some(Color::BLUE));
-        assert_eq!(buf[(1, 2)].color, Some(Color::BLUE));
+        assert_eq!(buf[(1, 2)].color, None);
     }
 }
