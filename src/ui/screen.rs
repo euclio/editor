@@ -1,22 +1,28 @@
 use std::fmt::{self, Debug, Write};
 use std::ops::{Index, IndexMut};
 
-use super::{Coordinates, Size};
+use itertools::Itertools;
+
+use super::{Bounds, Color, Coordinates, Size};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Cell {
     pub c: char,
+    pub color: Option<Color>,
 }
 
 impl Default for Cell {
     fn default() -> Self {
-        Cell { c: ' ' }
+        Cell {
+            c: ' ',
+            color: None,
+        }
     }
 }
 
 impl From<char> for Cell {
     fn from(c: char) -> Self {
-        Cell { c }
+        Cell { c, color: None }
     }
 }
 
@@ -51,6 +57,15 @@ impl Screen {
             .take(usize::from(self.size.width - x))
         {
             self[(y, x + i as u16)].c = c;
+        }
+    }
+
+    /// Apply a color to cells within a rectangular region.
+    pub fn apply_color(&mut self, bounds: Bounds, color: Color) {
+        for y in bounds.min.y..=bounds.max.y {
+            for x in bounds.min.x..=bounds.max.x {
+                self[(y, x)].color = Some(color);
+            }
         }
     }
 
@@ -95,9 +110,7 @@ impl IndexMut<(u16, u16)> for Screen {
 impl Debug for Screen {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for row in self.iter_rows() {
-            for cell in row {
-                f.write_char(cell.c)?;
-            }
+            f.write_str(&row.into_iter().map(|cell| format!("{:?}", cell)).join(", "))?;
             f.write_char('\n')?;
         }
         Ok(())
@@ -106,7 +119,7 @@ impl Debug for Screen {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cell, Coordinates, Screen, Size};
+    use super::{Bounds, Cell, Color, Coordinates, Screen, Size};
 
     #[test]
     fn indexing() {
@@ -135,7 +148,7 @@ mod tests {
     #[test]
     fn iter_rows() {
         let mut buf = Screen::new(Size::new(3, 3));
-        buf[(0, 0)] = Cell { c: 'a' };
+        buf[(0, 0)] = Cell::from('a');
 
         let rows = buf
             .iter_rows()
@@ -163,5 +176,16 @@ mod tests {
             buf.iter_rows().next().unwrap().collect::<Vec<_>>(),
             vec![&Cell::from('h'), &Cell::from('e')],
         );
+    }
+
+    #[test]
+    fn apply_color() {
+        let mut buf = Screen::new(Size::new(3, 3));
+        let bounds = Bounds::new(Coordinates::new(1, 1), Coordinates::new(2, 1));
+        buf.apply_color(bounds, Color::BLUE);
+
+        assert_eq!(buf[(0, 0)].color, None);
+        assert_eq!(buf[(1, 1)].color, Some(Color::BLUE));
+        assert_eq!(buf[(1, 2)].color, Some(Color::BLUE));
     }
 }

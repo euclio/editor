@@ -11,7 +11,7 @@ use tokio::fs::File;
 use tokio::io::{self, AsyncBufReadExt, BufReader};
 
 use crate::lsp::{LanguageId, ToUri};
-use crate::ui::{Context, Coordinates, Drawable};
+use crate::ui::{Bounds, Color, Context, Coordinates, Drawable};
 
 /// Unit for buffer-internal positions and lengths.
 pub struct BufferSpace;
@@ -138,6 +138,15 @@ impl Drawable for Buffer {
             .take(ctx.bounds.height().into())
         {
             ctx.screen.write(Coordinates::new(0, row as u16), line);
+        }
+
+        for row in self.lines.len()..ctx.bounds.height().into() {
+            let bounds = Bounds::new(
+                Coordinates::new(0, row as u16),
+                Coordinates::new(1, row as u16),
+            );
+
+            ctx.screen.apply_color(bounds, Color::BLUE);
         }
     }
 }

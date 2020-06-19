@@ -86,10 +86,31 @@ impl Terminal {
             self.stdout.write_all(cl.as_ref()).await?;
         }
 
+        let mut last_color = None;
+
         {
             let mut rows = self.back.iter_rows().peekable();
             while let Some(row) = rows.next() {
                 for col in row {
+                    if col.color != last_color {
+                        match col.color {
+                            Some(color) => {
+                                self.stdout
+                                    .write_all(
+                                        format!("\x1b[38;2;{};{};{}m", color.r, color.g, color.b)
+                                            .as_bytes(),
+                                    )
+                                    .await?;
+                            }
+                            None => {
+                                let sgr0 = self.terminfo.get::<cap::ExitAttributeMode>().unwrap();
+                                self.stdout.write_all(sgr0.as_ref()).await?;
+                            }
+                        }
+
+                        last_color = col.color;
+                    }
+
                     // FIXME: Doesn't support non-ASCII
                     self.stdout.write_u8(col.c as u8).await?;
                 }

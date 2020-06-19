@@ -15,8 +15,10 @@ pub type Size = Size2D<u16, ScreenSpace>;
 /// A bounding rectangle on the screen, in cells.
 pub type Bounds = Box2D<u16, ScreenSpace>;
 
+mod color;
 mod screen;
 
+pub use color::Color;
 pub use screen::Screen;
 
 /// Context for the rendering of a widget.
