@@ -53,21 +53,42 @@ impl Screen {
             self[(y, x + i as u16)].c = c;
         }
     }
+
+    /// Returns the index in the underlying storage that corresponds to the given row and column.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the row or column are out of bounds.
+    fn idx(&self, (row, col): (u16, u16)) -> usize {
+        assert!(
+            row < self.size.height,
+            "there are {} rows but the row is {}",
+            self.size.height,
+            row
+        );
+        assert!(
+            col < self.size.width,
+            "there are {} columns but the column is {}",
+            self.size.width,
+            col
+        );
+
+        usize::from(row * self.size.width + col)
+    }
 }
 
 impl Index<(u16, u16)> for Screen {
     type Output = Cell;
 
     fn index(&self, (row, col): (u16, u16)) -> &Self::Output {
-        let idx = row * self.size.width + col;
-        &self.cells[usize::from(idx)]
+        &self.cells[self.idx((row, col))]
     }
 }
 
 impl IndexMut<(u16, u16)> for Screen {
     fn index_mut(&mut self, (row, col): (u16, u16)) -> &mut Self::Output {
-        let idx = row * self.size.width + col;
-        &mut self.cells[usize::from(idx)]
+        let idx = self.idx((row, col));
+        &mut self.cells[idx]
     }
 }
 
@@ -91,8 +112,24 @@ mod tests {
     fn indexing() {
         let mut buf = Screen::new(Size::new(3, 3));
         buf[(0, 0)] = Cell::from('a');
+        buf[(2, 2)] = Cell::from('z');
 
         assert_eq!(buf.cells[0], Cell::from('a'));
+        assert_eq!(buf.cells[8], Cell::from('z'));
+    }
+
+    #[test]
+    #[should_panic = "there are 10 rows"]
+    fn indexing_out_of_bounds_row() {
+        let buf = Screen::new(Size::new(10, 10));
+        let _ = &buf[(11, 0)];
+    }
+
+    #[test]
+    #[should_panic = "there are 3 columns"]
+    fn indexing_out_of_bounds_col() {
+        let buf = Screen::new(Size::new(3, 3));
+        let _ = &buf[(0, 3)];
     }
 
     #[test]
