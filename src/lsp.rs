@@ -27,12 +27,13 @@ use tokio::process::{ChildStdin, Command};
 use tokio_util::codec::{FramedRead, FramedWrite};
 
 use crate::config::LanguageServerConfig;
+use crate::syntax::Syntax;
 
 mod protocol;
 
 use protocol::{Id, LspCodec, ResponseError};
 
-pub use protocol::{LanguageId, Message, Notification, Request, Response};
+pub use protocol::{Message, Notification, Request, Response};
 
 pub type Uri = lsp_types::Url;
 
@@ -45,7 +46,7 @@ pub struct Context {
     pub root: Uri,
 
     /// The hosted language.
-    pub language_id: LanguageId,
+    pub syntax: Syntax,
     // TODO: Split into client/server context and add server name?
 }
 
@@ -66,9 +67,9 @@ pub enum Error {
 
 /// Manages language servers.
 pub struct LanguageServerBridge {
-    config: HashMap<LanguageId, LanguageServerConfig>,
+    config: HashMap<Syntax, LanguageServerConfig>,
 
-    language_to_server: HashMap<LanguageId, LanguageServer>,
+    language_to_server: HashMap<Syntax, LanguageServer>,
 
     /// Cloneable sender for language server requests and notifications.
     server_sender: mpsc::Sender<(Context, Message)>,
@@ -76,7 +77,7 @@ pub struct LanguageServerBridge {
 
 impl LanguageServerBridge {
     pub fn new(
-        config: HashMap<LanguageId, LanguageServerConfig>,
+        config: HashMap<Syntax, LanguageServerConfig>,
         server_sender: mpsc::Sender<(Context, Message)>,
     ) -> Self {
         LanguageServerBridge {
@@ -87,10 +88,10 @@ impl LanguageServerBridge {
     }
 
     pub async fn server(&mut self, ctx: Context) -> Option<&mut LanguageServer> {
-        match self.language_to_server.entry(ctx.language_id) {
+        match self.language_to_server.entry(ctx.syntax) {
             Entry::Occupied(entry) => Some(entry.into_mut()),
             Entry::Vacant(entry) => {
-                let (prog, args) = self.config.get(&ctx.language_id)?.command();
+                let (prog, args) = self.config.get(&ctx.syntax)?.command();
                 let mut command = Command::new(prog);
                 command.args(args);
 

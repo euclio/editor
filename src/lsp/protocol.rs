@@ -1,7 +1,6 @@
 //! Implementation of the language server protocol.
 
 use std::fmt::{self, Display};
-use std::str::FromStr;
 
 use atoi::atoi;
 use bytes::{Buf, BufMut, BytesMut};
@@ -11,7 +10,6 @@ use serde::de::{self, Unexpected, Visitor};
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
-use strum_macros::{Display, EnumString};
 use thiserror::Error;
 use tokio::io;
 use tokio_util::codec::{Decoder, Encoder};
@@ -346,22 +344,6 @@ impl Decoder for LspCodec {
 
         let message = serde_json::from_slice(&content)?;
         Ok(Some(message))
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, EnumString, Display)]
-pub enum LanguageId {
-    #[strum(serialize = "rust")]
-    Rust,
-}
-
-impl<'de> Deserialize<'de> for LanguageId {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        FromStr::from_str(&s).map_err(de::Error::custom)
     }
 }
 

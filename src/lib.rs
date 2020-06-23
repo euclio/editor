@@ -23,6 +23,7 @@ mod buffer;
 mod config;
 mod logger;
 mod lsp;
+mod syntax;
 mod term;
 mod ui;
 
@@ -158,11 +159,11 @@ impl Editor {
     ///
     /// Returns `None` if there is no active language for the current buffer.
     fn ls_context(&self) -> Option<lsp::Context> {
-        let language_id = self.buffers.current().language_id?;
+        let syntax = self.buffers.current().syntax?;
 
         Some(lsp::Context {
             root: self.current_dir.clone().to_uri(),
-            language_id,
+            syntax,
         })
     }
 

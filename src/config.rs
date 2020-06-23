@@ -10,7 +10,7 @@ use serde::Deserialize;
 use tokio::fs;
 use tokio::io;
 
-use crate::lsp::LanguageId;
+use crate::syntax::Syntax;
 
 /// Configuration supplied by the user.
 #[derive(Debug, Default, PartialEq, Eq, Deserialize)]
@@ -18,7 +18,7 @@ use crate::lsp::LanguageId;
 pub struct Config {
     #[serde(default)]
     #[serde(rename = "language-server")]
-    pub language_server_config: HashMap<LanguageId, LanguageServerConfig>,
+    pub language_server_config: HashMap<Syntax, LanguageServerConfig>,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
@@ -98,7 +98,7 @@ mod tests {
     use tokio::fs::File;
     use tokio::io::AsyncWriteExt;
 
-    use crate::lsp::LanguageId;
+    use crate::syntax::Syntax;
 
     use super::{Config, LanguageServerConfig};
 
@@ -121,7 +121,7 @@ mod tests {
             config,
             Config {
                 language_server_config: hashmap! {
-                    LanguageId::Rust => LanguageServerConfig {
+                    Syntax::Rust => LanguageServerConfig {
                         command: vec![String::from("rust-analyzer")],
                     },
                 }

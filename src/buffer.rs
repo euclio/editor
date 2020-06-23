@@ -10,7 +10,8 @@ use lsp_types::TextDocumentItem;
 use tokio::fs::File;
 use tokio::io::{self, AsyncBufReadExt, BufReader};
 
-use crate::lsp::{LanguageId, ToUri};
+use crate::lsp::ToUri;
+use crate::syntax::Syntax;
 use crate::ui::{Bounds, Color, Context, Coordinates, Drawable};
 
 /// Unit for buffer-internal positions and lengths.
@@ -70,7 +71,11 @@ pub struct Buffer {
 
     /// The cursor position within the buffer. May or may not correspond to the on-screen cursor.
     pub cursor: Cursor,
-    pub language_id: Option<LanguageId>,
+
+    /// Syntax associated with the buffer.
+    ///
+    /// `None` if unknown or plain-text.
+    pub syntax: Option<Syntax>,
 }
 
 impl Buffer {
@@ -79,7 +84,7 @@ impl Buffer {
             path: None,
             cursor: Cursor::default(),
             lines: vec![String::new()],
-            language_id: None,
+            syntax: None,
         }
     }
 
@@ -88,11 +93,14 @@ impl Buffer {
 
         let reader = BufReader::new(File::open(&path).await?);
 
+        let syntax = Syntax::identify(&path);
+        info!("syntax identified: {:?}", syntax);
+
         Ok(Buffer {
             cursor: Cursor::default(),
             lines: reader.lines().try_collect().await?,
             path: Some(path),
-            language_id: Some(LanguageId::Rust),
+            syntax,
         })
     }
 
@@ -100,9 +108,10 @@ impl Buffer {
         Some(TextDocumentItem {
             uri: self.path.as_ref()?.to_uri(),
             language_id: self
-                .language_id
+                .syntax
                 .expect("language must be known to convert to text document item")
-                .to_string(),
+                .into_language_id()
+                .to_owned(),
             version: 0,
             text: self.lines.join("\n"),
         })
@@ -119,7 +128,7 @@ impl<'a> From<&'a str> for Buffer {
     fn from(s: &str) -> Self {
         Buffer {
             cursor: Cursor::default(),
-            language_id: None,
+            syntax: None,
             lines: s.lines().map(|line| line.to_owned()).collect(),
             path: None,
         }
