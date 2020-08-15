@@ -40,7 +40,7 @@ pub use logger::Logger;
 #[derive(Debug, StructOpt)]
 pub struct Options {
     /// A list of filenames to edit.
-    files: Vec<PathBuf>,
+    pub files: Vec<PathBuf>,
 }
 
 pub async fn run(mut options: Options) -> Result<(), Error> {

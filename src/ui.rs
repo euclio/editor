@@ -13,6 +13,8 @@ pub type Coordinates = Point2D<u16, ScreenSpace>;
 pub type Size = Size2D<u16, ScreenSpace>;
 
 /// A bounding rectangle on the screen, in cells.
+///
+/// This rectangle is endpoint-exclusive.
 pub type Bounds = Box2D<u16, ScreenSpace>;
 
 mod color;

@@ -152,7 +152,7 @@ impl Drawable for Buffer {
         for row in self.lines.len()..ctx.bounds.height().into() {
             let bounds = Bounds::new(
                 Coordinates::new(0, row as u16),
-                Coordinates::new(1, row as u16),
+                Coordinates::new(1, row as u16 + 1),
             );
 
             ctx.screen.apply_color(bounds, Color::BLUE);
@@ -162,17 +162,38 @@ impl Drawable for Buffer {
 
 #[cfg(test)]
 mod tests {
+    use indoc::indoc;
+
     use crate::ui::{Bounds, Context, Drawable, Screen, Size};
 
     use super::Buffer;
 
     #[test]
+    fn draw_empty_buffer() {
+        let buffer = Buffer::new();
+
+        let mut screen = Screen::new(Size::new(2, 3));
+
+        let mut ctx = Context {
+            bounds: Bounds::from_size(screen.size),
+            screen: &mut screen,
+        };
+
+        buffer.draw(&mut ctx);
+
+        assert_eq!(screen[(0, 0)].c, ' ');
+        assert_eq!(screen[(1, 0)].c, '~');
+        assert_eq!(screen[(1, 1)].c, ' ');
+        assert_eq!(screen[(2, 0)].c, '~');
+    }
+
+    #[test]
     fn draw_long_buffer() {
-        let buffer = Buffer::from(
+        let buffer = Buffer::from(indoc!(
             r"foo
             bar
-            baz",
-        );
+            baz"
+        ));
 
         let mut screen = Screen::new(Size::new(5, 2));
 
@@ -182,5 +203,8 @@ mod tests {
         };
 
         buffer.draw(&mut ctx);
+
+        assert_eq!(screen[(0, 0)].c, 'f');
+        assert_eq!(screen[(1, 0)].c, 'b');
     }
 }
