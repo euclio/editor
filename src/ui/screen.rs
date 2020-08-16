@@ -172,8 +172,6 @@ mod tests {
         let mut buf = Screen::new(Size::new(2, 1));
         buf.write(Coordinates::new(0, 0), "hello, world");
 
-        println!("{:#?}", buf);
-
         assert_eq!(
             buf.iter_rows().next().unwrap().collect::<Vec<_>>(),
             vec![&Cell::from('h'), &Cell::from('e')],

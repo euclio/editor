@@ -1,4 +1,5 @@
 #![recursion_limit = "256"]
+#![warn(clippy::print_stdout)]
 #![warn(clippy::todo)]
 #![warn(clippy::unwrap_used)]
 #![allow(clippy::unknown_clippy_lints)] // unwrap_used isn't available on stable yet.
