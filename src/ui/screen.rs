@@ -112,7 +112,7 @@ impl IndexMut<(u16, u16)> for Screen {
 impl Debug for Screen {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for row in self.iter_rows() {
-            f.write_str(&row.into_iter().map(|cell| format!("{:?}", cell)).join(", "))?;
+            f.write_str(&row.map(|cell| format!("{:?}", cell)).join(", "))?;
             f.write_char('\n')?;
         }
         Ok(())
