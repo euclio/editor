@@ -1,9 +1,10 @@
 //! Text editing buffers and buffer management.
 
+use std::cmp;
 use std::iter;
 use std::path::PathBuf;
 
-use euclid::{Box2D, Point2D};
+use euclid::{Point2D, Rect};
 use futures::stream::{self, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use log::*;
@@ -16,8 +17,10 @@ use crate::syntax::Syntax;
 use crate::ui::{Bounds, Color, Context, Coordinates, Drawable};
 
 mod highlight;
+mod motion;
 
 use highlight::Highlighter;
+use motion::Cursor;
 
 /// Unit for buffer-internal positions and lengths.
 pub struct BufferSpace;
@@ -25,10 +28,13 @@ pub struct BufferSpace;
 /// A position within a buffer.
 pub type Position = Point2D<usize, BufferSpace>;
 
+/// A translation within a buffer. Used for cursor and viewport movement.
+pub type Offset = euclid::Vector2D<isize, BufferSpace>;
+
 /// A rectangular area of text.
 ///
 /// This area is endpoint-exclusive.
-pub type Span = Box2D<usize, BufferSpace>;
+pub type Span = Rect<usize, BufferSpace>;
 
 /// Container for all open buffers.
 ///
@@ -39,8 +45,8 @@ pub struct Buffers {
 }
 
 impl Buffers {
-    pub async fn from_paths(paths: Vec<PathBuf>) -> io::Result<Self> {
-        let buffers = if paths.is_empty() {
+    pub async fn from_paths(paths: Vec<PathBuf>, bounds: Bounds) -> io::Result<Self> {
+        let mut buffers = if paths.is_empty() {
             Buffers {
                 buffers: vec![Buffer::new()],
                 current: 0,
@@ -54,11 +60,24 @@ impl Buffers {
             }
         };
 
+        buffers.current_mut().viewport = Some(bounds.to_rect().to_usize().cast_unit());
+
+        info!(
+            "active buffer viewport: {:?}",
+            buffers.current_mut().viewport
+        );
+
         Ok(buffers)
     }
 
+    /// The active buffer.
     pub fn current(&self) -> &Buffer {
         &self.buffers[self.current]
+    }
+
+    /// The active buffer, borrowed mutably.
+    pub fn current_mut(&mut self) -> &mut Buffer {
+        &mut self.buffers[self.current]
     }
 }
 
@@ -79,8 +98,10 @@ pub struct Buffer {
     /// The lines of the file.
     lines: Vec<String>,
 
-    /// The cursor position within the buffer. May or may not correspond to the on-screen cursor.
-    pub cursor: Position,
+    /// The cursor position within the buffer.
+    ///
+    /// The on-screen cursor location is determined by offsetting this position with the viewport.
+    cursor: Cursor,
 
     /// Syntax associated with the buffer.
     ///
@@ -89,16 +110,22 @@ pub struct Buffer {
 
     /// Responsible for highlighting, if a supported syntax was detected.
     highlighter: Option<Highlighter>,
+
+    /// The visible portion of the buffer.
+    ///
+    /// `None` if the buffer is hidden.
+    viewport: Option<Span>,
 }
 
 impl Buffer {
     pub fn new() -> Self {
         Buffer {
             path: None,
-            cursor: Position::default(),
+            cursor: Cursor::default(),
             lines: vec![String::new()],
             syntax: None,
             highlighter: None,
+            viewport: None,
         }
     }
 
@@ -116,11 +143,12 @@ impl Buffer {
         info!("syntax identified: {:?}", syntax);
 
         Ok(Buffer {
-            cursor: Position::default(),
+            cursor: Cursor::default(),
             lines: reader.lines().try_collect().await?,
             path: Some(path),
             syntax,
             highlighter: syntax.map(Highlighter::new),
+            viewport: None,
         })
     }
 
@@ -142,6 +170,15 @@ impl Buffer {
             .iter()
             .flat_map(|line| line.bytes().chain(iter::once(b'\n')))
     }
+
+    /// Returns the cursor position relative to the viewport.
+    pub fn cursor_position(&self) -> Position {
+        let viewport = self
+            .viewport
+            .expect("attempted to determine cursor position for hidden buffer");
+
+        Position::new(self.cursor.x(), self.cursor.y() - viewport.min_y())
+    }
 }
 
 impl Default for Buffer {
@@ -153,42 +190,40 @@ impl Default for Buffer {
 impl<'a> From<&'a str> for Buffer {
     fn from(s: &str) -> Self {
         Buffer {
-            cursor: Position::default(),
+            cursor: Cursor::default(),
             syntax: None,
             lines: s.lines().map(|line| line.to_owned()).collect(),
             path: None,
             highlighter: None,
+            viewport: None,
         }
     }
 }
 
 impl Drawable for Buffer {
     fn draw(&self, ctx: &mut Context<'_>) {
-        let tilde = String::from("~");
-
-        for (row, line) in self
-            .lines
-            .iter()
-            .pad_using(ctx.bounds.height().into(), |_| &tilde)
-            .enumerate()
-            .take(ctx.bounds.height().into())
-        {
-            ctx.screen.write(Coordinates::new(0, row as u16), line);
-        }
+        let viewport = match self.viewport {
+            Some(viewport) => viewport,
+            None => return,
+        };
 
         let tilde = String::from("~");
 
         for (row, line) in self
             .lines
             .iter()
-            .pad_using(ctx.bounds.height().into(), |_| &tilde)
+            .skip(viewport.min_y())
+            .pad_using(viewport.height(), |_| &tilde)
             .enumerate()
-            .take(ctx.bounds.height().into())
+            .take(viewport.height())
         {
+            // FIXME: Naively assumes ASCII.
+            let max = cmp::min(viewport.max_x(), line.len());
+            let line = &line[viewport.min_x()..max];
             ctx.screen.write(Coordinates::new(0, row as u16), line);
         }
 
-        for row in self.lines.len()..ctx.bounds.height().into() {
+        for row in (self.lines.len() - viewport.min_y())..ctx.bounds.height().into() {
             let bounds = Bounds::new(
                 Coordinates::new(0, row as u16),
                 Coordinates::new(1, row as u16 + 1),
@@ -198,18 +233,19 @@ impl Drawable for Buffer {
         }
 
         if let Some(highlighter) = &self.highlighter {
-            highlighter.highlight(ctx, &self);
+            highlighter.highlight(&mut ctx.screen, &self);
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use euclid::rect;
     use indoc::indoc;
 
     use crate::ui::{Bounds, Context, Drawable, Screen, Size};
 
-    use super::Buffer;
+    use super::{Buffer, Span};
 
     #[test]
     fn bytes_iter() {
@@ -223,14 +259,17 @@ mod tests {
 
     #[test]
     fn draw_empty_buffer() {
-        let buffer = Buffer::new();
+        let mut buffer = Buffer::new();
 
-        let mut screen = Screen::new(Size::new(2, 3));
+        let size = Size::new(2, 3);
+        let mut screen = Screen::new(size);
 
         let mut ctx = Context {
-            bounds: Bounds::from_size(screen.size),
+            bounds: Bounds::from_size(size),
             screen: &mut screen,
         };
+
+        buffer.viewport = Some(Span::from_size(size.cast().cast_unit()));
 
         buffer.draw(&mut ctx);
 
@@ -242,13 +281,40 @@ mod tests {
 
     #[test]
     fn draw_long_buffer() {
-        let buffer = Buffer::from(indoc!(
+        let mut buffer = Buffer::from(indoc!(
             r"foo
             bar
             baz"
         ));
 
-        let mut screen = Screen::new(Size::new(5, 2));
+        let size = Size::new(5, 2);
+        let mut screen = Screen::new(size);
+
+        let mut ctx = Context {
+            bounds: Bounds::from_size(size),
+            screen: &mut screen,
+        };
+
+        buffer.viewport = Some(Span::from_size(size.cast().cast_unit()));
+        buffer.draw(&mut ctx);
+
+        assert_eq!(screen[(0, 0)].c, 'f');
+        assert_eq!(screen[(1, 0)].c, 'b');
+    }
+
+    #[test]
+    fn draw_buffer_offset_viewport() {
+        let mut buffer = Buffer::from(indoc! {"
+            abcde
+            fghij
+            klmno
+            pqrst
+            uvwxy
+        "});
+
+        buffer.viewport = Some(rect(1, 1, 3, 3));
+
+        let mut screen = Screen::new(Size::new(3, 3));
 
         let mut ctx = Context {
             bounds: Bounds::from_size(screen.size),
@@ -257,7 +323,7 @@ mod tests {
 
         buffer.draw(&mut ctx);
 
-        assert_eq!(screen[(0, 0)].c, 'f');
-        assert_eq!(screen[(1, 0)].c, 'b');
+        assert_eq!(screen[(0, 0)].c, 'g');
+        assert_eq!(screen[(2, 2)].c, 's');
     }
 }

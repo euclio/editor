@@ -13,7 +13,9 @@
 //! [tree-sitter]: https://tree-sitter.github.io/tree-sitter/
 
 use std::cell::RefCell;
+use std::cmp;
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::ops::Index;
 
 use lazy_static::lazy_static;
@@ -22,7 +24,7 @@ use maplit::hashmap;
 use tree_sitter::{Parser, Point, Query, QueryCursor, Range, Tree};
 
 use crate::syntax::Syntax;
-use crate::ui::{Bounds, Color, Context, Coordinates};
+use crate::ui::{Bounds, Color, Coordinates, Screen};
 
 use super::{Buffer, Span};
 
@@ -109,7 +111,7 @@ impl Highlighter {
     }
 
     /// Apply syntax highlighting from buffer to the screen.
-    pub fn highlight(&self, ctx: &mut Context, buffer: &Buffer) {
+    pub fn highlight(&self, screen: &mut Screen, buffer: &Buffer) {
         debug!("starting highlighting");
 
         let tree = self.parser.borrow_mut().parse_with(
@@ -124,10 +126,11 @@ impl Highlighter {
 
         let mut cursor = QueryCursor::new();
 
-        // TODO: This should be the viewport of the buffer.
-        let span = Span::from_untyped(&ctx.bounds.to_untyped().cast::<usize>());
+        let viewport = buffer
+            .viewport
+            .expect("attempted to highlight hidden buffer");
 
-        let (start, end) = span_to_points(span);
+        let (start, end) = span_to_points(viewport);
         cursor.set_point_range(start, end);
 
         let captures_query =
@@ -161,7 +164,7 @@ impl Highlighter {
                 }
 
                 if let Some(color) = color {
-                    highlight_range(ctx, range, color);
+                    highlight_range(screen, viewport, range, color);
                 }
             }
         }
@@ -171,7 +174,7 @@ impl Highlighter {
 }
 
 /// Highlights a tree-sitter range on the screen.
-fn highlight_range(ctx: &mut Context, range: Range, color: Color) {
+fn highlight_range(screen: &mut Screen, viewport: Span, range: Range, color: Color) {
     for y in range.start_point.row..=range.end_point.row {
         let start_x = if y == range.start_point.row {
             range.start_point.column as u16
@@ -179,18 +182,26 @@ fn highlight_range(ctx: &mut Context, range: Range, color: Color) {
             0
         };
 
+        // If we're told to start highlighting at the edge of the viewport, bail out.
+        // TODO: Is this a bug in tree-sitter?
+        if usize::from(start_x) == viewport.max_x() {
+            return;
+        }
+
         let end_x = if y == range.end_point.row {
-            range.end_point.column as u16
+            cmp::min(range.end_point.column, viewport.max_x())
         } else {
-            ctx.bounds.max.x
+            viewport.max_x()
         };
 
-        let y = y as u16;
-        let highlight_bounds =
-            Bounds::new(Coordinates::new(start_x, y), Coordinates::new(end_x, y + 1));
+        let y = u16::try_from(y.saturating_sub(viewport.min_y()))
+            .expect("viewport outside screen bounds");
+        let highlight_bounds = Bounds::new(
+            Coordinates::new(start_x, y),
+            Coordinates::new(end_x as u16, y + 1),
+        );
 
-        ctx.screen
-            .apply_color(ctx.bounds.intersection(&highlight_bounds), color);
+        screen.apply_color(highlight_bounds, color);
     }
 }
 
@@ -238,24 +249,25 @@ fn tree_sitter_highlight_config(language: Syntax) -> (tree_sitter::Language, Que
 
 fn span_to_points(span: Span) -> (Point, Point) {
     (
-        Point::new(span.min.y, span.min.x),
-        Point::new(span.max.y - 1, span.max.x),
+        Point::new(span.min_y(), span.min_x()),
+        Point::new(span.max_y() - 1, span.max_x()),
     )
 }
 
 #[cfg(test)]
 mod tests {
+    use euclid::size2;
     use indoc::indoc;
     use tree_sitter::Point;
 
-    use crate::buffer::{Buffer, Position, Span};
+    use crate::buffer::{Buffer, Span};
     use crate::ui::{Bounds, Color, Context, Drawable, Screen, Size};
 
     use super::{span_to_points, Syntax, Theme};
 
     #[test]
     fn points_from_span() {
-        let span = Span::new(Position::new(0, 0), Position::new(2, 1));
+        let span = Span::from_size(size2(2, 1));
         let (min, max) = span_to_points(span);
 
         assert_eq!(min, Point::new(0, 0));
@@ -283,15 +295,53 @@ mod tests {
     }
 
     #[test]
+    fn highlight_starting_at_end_of_viewport() {
+        let mut buffer = Buffer::from(r"parse('\n');");
+
+        buffer.set_syntax(Some(Syntax::JavaScript));
+
+        let size = Size::new(6, 2);
+        let mut screen = Screen::new(size);
+        buffer.viewport = Some(Span::from_size(size.cast().cast_unit()));
+
+        let mut ctx = Context {
+            bounds: Bounds::from_size(size),
+            screen: &mut screen,
+        };
+
+        buffer.draw(&mut ctx);
+    }
+
+    #[test]
     fn highlight_at_edge_of_screen() {
         let mut buffer = Buffer::from("impl Debug for Foo {}");
 
         buffer.set_syntax(Some(Syntax::Rust));
 
-        let mut screen = Screen::new(Size::new(5, 1));
+        let size = Size::new(5, 1);
+        let mut screen = Screen::new(size);
+        buffer.viewport = Some(Span::from_size(size.cast().cast_unit()));
 
         let mut ctx = Context {
-            bounds: Bounds::from_size(screen.size),
+            bounds: Bounds::from_size(size),
+            screen: &mut screen,
+        };
+
+        buffer.draw(&mut ctx);
+    }
+
+    #[test]
+    fn highlight_through_edge_of_screen() {
+        let mut buffer = Buffer::from("'long string literal'");
+
+        buffer.set_syntax(Some(Syntax::JavaScript));
+
+        let size = Size::new(5, 1);
+        let mut screen = Screen::new(size);
+        buffer.viewport = Some(Span::from_size(size.cast().cast_unit()));
+
+        let mut ctx = Context {
+            bounds: Bounds::from_size(size),
             screen: &mut screen,
         };
 
@@ -300,8 +350,6 @@ mod tests {
 
     #[test]
     fn highlight_multiline_comment() {
-        let _ = env_logger::builder().is_test(true).try_init();
-
         let mut buffer = Buffer::from(indoc! {r#"
             /*
              * I am a multi-line comment.
@@ -309,20 +357,33 @@ mod tests {
              */
         "#});
 
-        buffer.set_syntax(Some(Syntax::JavaScript));
+        let size = Size::new(30, 5);
 
-        let mut screen = Screen::new(Size::new(30, 5));
+        buffer.set_syntax(Some(Syntax::JavaScript));
+        buffer.viewport = Some(Span::from_size(size.cast().cast_unit()));
+
+        let mut screen = Screen::new(size);
 
         let mut ctx = Context {
-            bounds: Bounds::from_size(screen.size),
+            bounds: Bounds::from_size(size),
             screen: &mut screen,
         };
 
         buffer.draw(&mut ctx);
 
-        assert!(screen[(0, 0)].color.is_some());
-        assert!(screen[(0, 1)].color.is_some());
-        assert!(screen[(1, 10)].color.is_some());
+        assert_eq!(ctx.screen[(0, 0)].c, '/');
+        assert!(ctx.screen[(0, 0)].color.is_some());
+        assert!(ctx.screen[(0, 1)].color.is_some());
+        assert!(ctx.screen[(1, 10)].color.is_some());
+
+        // Shift the viewport to be within the highlight range.
+        buffer
+            .viewport
+            .as_mut()
+            .map(|viewport| viewport.origin.y += 1);
+        buffer.draw(&mut ctx);
+
+        assert_eq!(ctx.screen[(0, 3)].c, 'I');
     }
 
     #[test]
@@ -332,7 +393,7 @@ mod tests {
             String::from("function.method"),
             String::from("function.builtin.static"),
         ]);
-        // assert_eq!(theme.color_for(1), Some(Color::new(0xff, 0x87, 0x00)));
+        assert_eq!(theme.color_for(1), Some(Color::new(0xff, 0x87, 0x00)));
         assert_eq!(theme.color_for(2), Some(Color::new(0xff, 0x87, 0x00)));
     }
 }

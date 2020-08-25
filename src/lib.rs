@@ -1,4 +1,5 @@
 #![recursion_limit = "256"]
+#![warn(clippy::dbg_macro)]
 #![warn(clippy::print_stdout)]
 #![warn(clippy::todo)]
 #![cfg_attr(not(test), warn(clippy::unwrap_used))]
@@ -6,6 +7,7 @@
 // workaround for rust-lang/rust#55779
 extern crate serde;
 
+use std::convert::TryFrom;
 use std::env;
 use std::os::unix::io::AsRawFd;
 use std::panic;
@@ -44,6 +46,11 @@ pub struct Options {
 }
 
 pub async fn run(mut options: Options) -> Result<(), Error> {
+    let stdin = Stdin::new()?;
+    let term = Terminal::new().await?;
+
+    set_panic_hook(&stdin, &term);
+
     let Config {
         language_server_config,
     } = match Config::read(Config::config_path()).await {
@@ -61,7 +68,9 @@ pub async fn run(mut options: Options) -> Result<(), Error> {
 
     let (ls_tx, ls_rx) = mpsc::channel(10);
 
-    let buffers = Buffers::from_paths(options.files.clone()).await?;
+    let screen_size = term.size();
+    let buffers =
+        Buffers::from_paths(options.files.clone(), Bounds::from_size(screen_size)).await?;
 
     let editor = Editor {
         current_dir: env::current_dir()?,
@@ -70,7 +79,7 @@ pub async fn run(mut options: Options) -> Result<(), Error> {
         language_server_messages: ls_rx,
     };
 
-    editor.run().await
+    editor.run(stdin, term).await
 }
 
 /// Core editor state.
@@ -84,12 +93,7 @@ pub struct Editor {
 }
 
 impl Editor {
-    async fn run(mut self) -> Result<(), Error> {
-        let stdin = Stdin::new()?;
-        let mut term = Terminal::new().await?;
-
-        set_panic_hook(&stdin, &term);
-
+    async fn run(mut self, stdin: Stdin, mut term: Terminal) -> Result<(), Error> {
         let mut stdin = stdin.fuse();
         let mut sigwinch = signal(SignalKind::window_change())?.fuse();
 
@@ -124,6 +128,8 @@ impl Editor {
 
                     match key {
                         Key::Char('q') | Key::Ctrl('c') => break,
+                        Key::Char('j') => self.buffers.current_mut().move_down(),
+                        Key::Char('k') => self.buffers.current_mut().move_up(),
                         _ => (),
                     }
                 }
@@ -175,12 +181,15 @@ impl Editor {
             screen: term.screen(),
         };
 
+        ctx.screen.clear();
+
         let current_buffer = self.buffers.current();
         current_buffer.draw(&mut ctx);
 
+        let cursor_position = current_buffer.cursor_position();
         term.cursor = Coordinates::new(
-            current_buffer.cursor.x as u16,
-            current_buffer.cursor.y as u16,
+            u16::try_from(cursor_position.x).expect("cursor outside screen bounds"),
+            u16::try_from(cursor_position.y).expect("cursor outside screen bounds"),
         );
 
         term.refresh().await?;

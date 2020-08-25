@@ -92,6 +92,13 @@ impl Screen {
 
         usize::from(row * self.size.width + col)
     }
+
+    /// Erase all screen contents.
+    pub fn clear(&mut self) {
+        for cell in &mut self.cells {
+            *cell = Cell::default();
+        }
+    }
 }
 
 impl Index<(u16, u16)> for Screen {
