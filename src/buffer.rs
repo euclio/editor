@@ -177,7 +177,10 @@ impl Buffer {
             .viewport
             .expect("attempted to determine cursor position for hidden buffer");
 
-        Position::new(self.cursor.x(), self.cursor.y() - viewport.min_y())
+        Position::new(
+            self.cursor.x() - viewport.min_x(),
+            self.cursor.y() - viewport.min_y(),
+        )
     }
 }
 
@@ -218,9 +221,11 @@ impl Drawable for Buffer {
             .take(viewport.height())
         {
             // FIXME: Naively assumes ASCII.
-            let max = cmp::min(viewport.max_x(), line.len());
-            let line = &line[viewport.min_x()..max];
-            ctx.screen.write(Coordinates::new(0, row as u16), line);
+            if viewport.min_x() < line.len() {
+                let max = cmp::min(viewport.max_x(), line.len());
+                let line = &line[viewport.min_x()..max];
+                ctx.screen.write(Coordinates::new(0, row as u16), line);
+            }
         }
 
         for row in (self.lines.len() - viewport.min_y())..ctx.bounds.height().into() {
@@ -245,7 +250,7 @@ mod tests {
 
     use crate::ui::{Bounds, Context, Drawable, Screen, Size};
 
-    use super::{Buffer, Span};
+    use super::{Buffer, Cursor, Position, Span};
 
     #[test]
     fn bytes_iter() {
@@ -325,5 +330,44 @@ mod tests {
 
         assert_eq!(screen[(0, 0)].c, 'g');
         assert_eq!(screen[(2, 2)].c, 's');
+    }
+
+    #[test]
+    fn draw_buffer_offset_viewport_short_line() {
+        let mut buffer = Buffer::from(indoc! {"
+            hello
+
+        "});
+
+        buffer.viewport = Some(rect(1, 0, 2, 2));
+
+        let mut screen = Screen::new(Size::new(2, 2));
+
+        let mut ctx = Context {
+            bounds: Bounds::from_size(screen.size),
+            screen: &mut screen,
+        };
+
+        buffer.draw(&mut ctx);
+
+        println!("{:?}", screen);
+
+        assert_eq!(screen[(0, 0)].c, 'e');
+        assert_eq!(screen[(0, 1)].c, 'l');
+        assert_eq!(screen[(1, 0)].c, ' ');
+    }
+
+    #[test]
+    fn cursor_position() {
+        let mut buffer = Buffer::from(indoc! {"
+            foo
+            bar
+            baz
+        "});
+
+        buffer.cursor = Cursor::at(1, 1);
+        buffer.viewport = Some(rect(1, 1, 1, 1));
+
+        assert_eq!(buffer.cursor_position(), Position::zero());
     }
 }

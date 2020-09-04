@@ -4,6 +4,7 @@ use std::cmp;
 use std::convert::TryFrom;
 
 use euclid::vec2;
+use log::*;
 
 use super::{Buffer, Offset, Position};
 
@@ -29,6 +30,19 @@ impl Cursor {
 
     pub fn y(&self) -> usize {
         self.pos.y
+    }
+
+    /// Moves the cursor left or right a number of columns.
+    pub fn move_x(&mut self, offset: isize) {
+        let n = usize::try_from(offset.abs()).expect("expected non-negative offset");
+
+        if offset.is_negative() {
+            self.pos.x -= n;
+        } else {
+            self.pos.x += n;
+        }
+
+        self.desired_col = self.pos.x;
     }
 
     /// Move the cursor up or down a number of lines.
@@ -69,10 +83,16 @@ impl Cursor {
 
 impl Buffer {
     pub fn move_offset(&mut self, offset: Offset) {
-        let (_, y_offset) = offset.to_tuple();
+        let (x_offset, y_offset) = offset.to_tuple();
 
-        self.cursor.move_y(y_offset);
-        self.cursor.snap(self.current_line_length());
+        if x_offset != 0 {
+            self.cursor.move_x(x_offset);
+        }
+
+        if y_offset != 0 {
+            self.cursor.move_y(y_offset);
+            self.cursor.snap(self.current_line_length());
+        }
 
         if let Some(viewport) = &mut self.viewport {
             if self.cursor.y() > SCROLLOFF && self.cursor.y() > viewport.max_y() - SCROLLOFF {
@@ -81,7 +101,15 @@ impl Buffer {
             } else if self.cursor.y() < viewport.min_y() + SCROLLOFF {
                 viewport.origin.y = self.cursor.y().saturating_sub(SCROLLOFF);
             }
+
+            if self.cursor.x() >= viewport.max_x() {
+                viewport.origin.x = self.cursor.x() + 1 - viewport.width();
+            } else if self.cursor.x() < viewport.min_x() {
+                viewport.origin.x = self.cursor.x();
+            }
         }
+
+        debug!("cursor moved to {:?}", self.cursor.pos);
     }
 
     /// Move the cursor down a single line.
@@ -93,6 +121,15 @@ impl Buffer {
         self.move_offset(vec2(0, 1));
     }
 
+    /// Move the cursor right a single column.
+    pub fn move_right(&mut self) {
+        if self.at_end_of_line() {
+            return;
+        }
+
+        self.move_offset(vec2(1, 0));
+    }
+
     /// Move the cursor up a single line.
     pub fn move_up(&mut self) {
         if self.at_first_line() {
@@ -100,6 +137,15 @@ impl Buffer {
         }
 
         self.move_offset(vec2(0, -1));
+    }
+
+    /// Move the cursor left a single column.
+    pub fn move_left(&mut self) {
+        if self.at_beginning_of_line() {
+            return;
+        }
+
+        self.move_offset(vec2(-1, 0));
     }
 
     /// Returns true if the cursor is on the first line of the buffer.
@@ -110,6 +156,16 @@ impl Buffer {
     /// Returns true if the cursor is on the last line of the buffer.
     fn at_last_line(&self) -> bool {
         self.cursor.y() == self.lines.len() - 1
+    }
+
+    /// Returns true if the cursor is in the leftmost column.
+    fn at_beginning_of_line(&self) -> bool {
+        self.cursor.x() == 0
+    }
+
+    /// Returns true if the cursor is in the rightmost column for the given line.
+    fn at_end_of_line(&self) -> bool {
+        self.cursor.x() >= self.current_line_length()
     }
 
     /// Returns the current line length in cells.
@@ -134,11 +190,27 @@ mod tests {
     fn move_single_character_empty_buffer() {
         let mut buffer = Buffer::new();
 
+        buffer.move_left();
+        assert_eq!(buffer.cursor.pos, Position::default());
+
         buffer.move_down();
         assert_eq!(buffer.cursor.pos, Position::default());
 
         buffer.move_up();
         assert_eq!(buffer.cursor.pos, Position::default());
+
+        buffer.move_right();
+        assert_eq!(buffer.cursor.pos, Position::default());
+    }
+
+    #[test]
+    fn move_left() {
+        let mut buffer = Buffer::from("hello, world");
+        buffer.cursor = Cursor::at(5, 0);
+
+        buffer.move_left();
+
+        assert_eq!(buffer.cursor.pos, Position::new(4, 0));
     }
 
     #[test]
@@ -165,6 +237,16 @@ mod tests {
         buffer.move_down();
 
         assert_eq!(buffer.cursor.pos, Position::new(2, 1));
+    }
+
+    #[test]
+    fn move_right() {
+        let mut buffer = Buffer::from("hello world");
+        buffer.cursor = Cursor::at(5, 0);
+
+        buffer.move_right();
+
+        assert_eq!(buffer.cursor.pos, Position::new(6, 0));
     }
 
     #[test]
@@ -210,6 +292,24 @@ mod tests {
     }
 
     #[test]
+    fn viewport_motion_left() {
+        let mut buffer = Buffer::from((1..10).join("").as_str());
+
+        buffer.viewport = Some(rect(4, 0, 2, 1));
+        buffer.cursor = Cursor::at(5, 0);
+
+        let old_viewport = buffer.viewport.unwrap();
+        buffer.move_left();
+        assert_eq!(buffer.cursor.pos, Position::new(4, 0));
+        assert_eq!(old_viewport, buffer.viewport.unwrap());
+
+        buffer.move_left();
+        assert_eq!(buffer.cursor.pos, Position::new(3, 0));
+        assert_eq!(buffer.viewport.unwrap().width(), old_viewport.width());
+        assert_eq!(buffer.viewport.unwrap().min_x(), 3);
+    }
+
+    #[test]
     fn viewport_motion_up() {
         let mut buffer = Buffer::from((1..100).join("\n").as_str());
 
@@ -249,6 +349,24 @@ mod tests {
         assert_eq!(buffer.cursor.pos, Position::new(0, 98));
         assert_eq!(buffer.viewport.unwrap().height(), old_viewport.height());
         assert_eq!(buffer.viewport.unwrap().max_y(), 99);
+    }
+
+    #[test]
+    fn viewport_motion_right() {
+        let mut buffer = Buffer::from((1..10).join("").as_str());
+
+        buffer.viewport = Some(rect(0, 0, 5, 1));
+        buffer.cursor = Cursor::at(3, 0);
+
+        let old_viewport = buffer.viewport.unwrap();
+        buffer.move_right();
+        assert_eq!(buffer.cursor.pos, Position::new(4, 0));
+        assert_eq!(old_viewport, buffer.viewport.unwrap());
+
+        buffer.move_right();
+        assert_eq!(buffer.cursor.pos, Position::new(5, 0));
+        assert_eq!(buffer.viewport.unwrap().width(), old_viewport.width());
+        assert_eq!(buffer.viewport.unwrap().min_x(), 1);
     }
 
     #[test]

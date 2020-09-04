@@ -175,29 +175,36 @@ impl Highlighter {
 
 /// Highlights a tree-sitter range on the screen.
 fn highlight_range(screen: &mut Screen, viewport: Span, range: Range, color: Color) {
+    debug!("highlighting range {:?}", range);
+
+    // Split the range into rectangular areas per-line.
     for y in range.start_point.row..=range.end_point.row {
-        let start_x = if y == range.start_point.row {
-            range.start_point.column as u16
+        let mut start_x = if y == range.start_point.row {
+            cmp::max(range.start_point.column, viewport.min_x())
         } else {
             0
         };
+        start_x = start_x.saturating_sub(viewport.min_x());
 
-        // If we're told to start highlighting at the edge of the viewport, bail out.
-        // TODO: Is this a bug in tree-sitter?
-        if usize::from(start_x) == viewport.max_x() {
-            return;
-        }
-
-        let end_x = if y == range.end_point.row {
+        let mut end_x = if y == range.end_point.row {
             cmp::min(range.end_point.column, viewport.max_x())
         } else {
             viewport.max_x()
         };
+        end_x = end_x.saturating_sub(viewport.min_x());
 
+        // If we're told to start highlighting at the edge of the viewport, bail out.
+        // TODO: Is this a bug in tree-sitter?
+        if start_x == end_x {
+            return;
+        }
+
+        let start_x = u16::try_from(start_x).expect("attempted to draw outside screen bounds");
+        let end_x = u16::try_from(end_x).expect("attempted to draw outside screen bounds");
         let y = u16::try_from(y.saturating_sub(viewport.min_y()))
             .expect("viewport outside screen bounds");
         let highlight_bounds = Bounds::new(
-            Coordinates::new(start_x, y),
+            Coordinates::new(start_x as u16, y),
             Coordinates::new(end_x as u16, y + 1),
         );
 
@@ -256,7 +263,7 @@ fn span_to_points(span: Span) -> (Point, Point) {
 
 #[cfg(test)]
 mod tests {
-    use euclid::size2;
+    use euclid::{rect, size2};
     use indoc::indoc;
     use tree_sitter::Point;
 
@@ -295,7 +302,27 @@ mod tests {
     }
 
     #[test]
-    fn highlight_starting_at_end_of_viewport() {
+    fn highlight_left_viewport_edge() {
+        let mut buffer = Buffer::from(indoc! {"
+
+            extern crate foo;
+        "});
+
+        buffer.set_syntax(Some(Syntax::Rust));
+
+        let mut screen = Screen::new(size2(4, 2));
+        buffer.viewport = Some(rect(6, 0, 4, 2));
+
+        let mut ctx = Context {
+            bounds: Bounds::from_size(size2(4, 2)),
+            screen: &mut screen,
+        };
+
+        buffer.draw(&mut ctx);
+    }
+
+    #[test]
+    fn highlight_right_viewport_edge() {
         let mut buffer = Buffer::from(r"parse('\n');");
 
         buffer.set_syntax(Some(Syntax::JavaScript));
@@ -384,6 +411,26 @@ mod tests {
         buffer.draw(&mut ctx);
 
         assert_eq!(ctx.screen[(0, 3)].c, 'I');
+    }
+
+    #[test]
+    fn highlight_shifted_viewport() {
+        let mut buffer = Buffer::from(indoc! {"
+            /* hello, world!
+            goodbye, world! */
+        "});
+
+        buffer.set_syntax(Some(Syntax::JavaScript));
+        buffer.viewport = Some(rect(1, 0, 5, 2));
+
+        let mut screen = Screen::new(size2(5, 2));
+
+        let mut ctx = Context {
+            bounds: Bounds::from_size(screen.size),
+            screen: &mut screen,
+        };
+
+        buffer.draw(&mut ctx);
     }
 
     #[test]

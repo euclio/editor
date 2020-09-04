@@ -1,4 +1,4 @@
-#![recursion_limit = "256"]
+#![recursion_limit = "512"]
 #![warn(clippy::dbg_macro)]
 #![warn(clippy::print_stdout)]
 #![warn(clippy::todo)]
@@ -128,8 +128,10 @@ impl Editor {
 
                     match key {
                         Key::Char('q') | Key::Ctrl('c') => break,
+                        Key::Char('h') => self.buffers.current_mut().move_left(),
                         Key::Char('j') => self.buffers.current_mut().move_down(),
                         Key::Char('k') => self.buffers.current_mut().move_up(),
+                        Key::Char('l') => self.buffers.current_mut().move_right(),
                         _ => (),
                     }
                 }
