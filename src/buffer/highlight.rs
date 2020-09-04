@@ -178,7 +178,7 @@ fn highlight_range(screen: &mut Screen, viewport: Span, range: Range, color: Col
     debug!("highlighting range {:?}", range);
 
     // Split the range into rectangular areas per-line.
-    for y in range.start_point.row..=range.end_point.row {
+    for y in range.start_point.row..=cmp::min(range.end_point.row, viewport.max_y() - 1) {
         let mut start_x = if y == range.start_point.row {
             cmp::max(range.start_point.column, viewport.min_x())
         } else {
@@ -280,6 +280,8 @@ mod tests {
         assert_eq!(min, Point::new(0, 0));
         assert_eq!(max, Point::new(0, 2));
     }
+
+    // TODO: it might be better to just unit test highlight_range directly...
 
     #[test]
     fn highlight_large_buffer() {
@@ -424,6 +426,29 @@ mod tests {
         buffer.viewport = Some(rect(1, 0, 5, 2));
 
         let mut screen = Screen::new(size2(5, 2));
+
+        let mut ctx = Context {
+            bounds: Bounds::from_size(screen.size),
+            screen: &mut screen,
+        };
+
+        buffer.draw(&mut ctx);
+    }
+
+    #[test]
+    fn highlight_through_viewport_bottom() {
+        let mut buffer = Buffer::from(indoc! {"
+            /*
+             * Long
+             * multi-line
+             * comment
+             */
+        "});
+
+        buffer.set_syntax(Some(Syntax::JavaScript));
+        buffer.viewport = Some(rect(0, 0, 5, 1));
+
+        let mut screen = Screen::new(size2(5, 1));
 
         let mut ctx = Context {
             bounds: Bounds::from_size(screen.size),
