@@ -1,6 +1,7 @@
 //! Text editing buffers and buffer management.
 
 use std::cmp;
+use std::env;
 use std::iter;
 use std::path::PathBuf;
 
@@ -9,7 +10,7 @@ use futures::stream::{self, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use log::*;
 use lsp_types::TextDocumentItem;
-use tokio::fs::File;
+use tokio::fs::{self, File};
 use tokio::io::{self, AsyncBufReadExt, BufReader};
 
 use crate::lsp::ToUri;
@@ -52,7 +53,19 @@ impl Buffers {
                 current: 0,
             }
         } else {
-            let buffers = stream::iter(paths).then(Buffer::open).try_collect().await?;
+            let buffers = stream::iter(paths)
+                .then(|mut path| async {
+                    if !path.is_absolute() {
+                        match env::current_dir() {
+                            Ok(dir) => path = dir.join(path),
+                            Err(e) => return Err(e),
+                        }
+                    }
+
+                    Buffer::open(path).await
+                })
+                .try_collect()
+                .await?;
 
             Buffers {
                 buffers,
@@ -135,16 +148,24 @@ impl Buffer {
     }
 
     pub async fn open(path: PathBuf) -> io::Result<Self> {
-        info!("creating buffer with contents of {}", path.display());
+        info!("creating buffer for {}", path.display());
 
-        let reader = BufReader::new(File::open(&path).await?);
+        let lines = if fs::metadata(&path).await.is_ok() {
+            let reader = BufReader::new(File::open(&path).await?);
+            reader.lines().try_collect().await?
+        } else {
+            info!("{} does not exist", path.display());
+            vec![String::new()]
+        };
+
+        info!("read {} lines", lines.len());
 
         let syntax = Syntax::identify(&path);
         info!("syntax identified: {:?}", syntax);
 
         Ok(Buffer {
             cursor: Cursor::default(),
-            lines: reader.lines().try_collect().await?,
+            lines,
             path: Some(path),
             syntax,
             highlighter: syntax.map(Highlighter::new),
@@ -245,12 +266,35 @@ impl Drawable for Buffer {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use euclid::rect;
     use indoc::indoc;
 
     use crate::ui::{Bounds, Context, Drawable, Screen, Size};
 
-    use super::{Buffer, Cursor, Position, Span};
+    use super::{Buffer, Buffers, Cursor, Position, Span};
+
+    #[tokio::test]
+    async fn buffers_open_existing_path() {
+        let buffers = Buffers::from_paths(vec![PathBuf::from("src/lib.rs")], Bounds::zero())
+            .await
+            .unwrap();
+
+        assert!(buffers.current().path.as_ref().unwrap().is_absolute());
+        assert!(buffers.current().to_text_document_item().is_some());
+    }
+
+    #[tokio::test]
+    async fn buffers_open_new_path() {
+        let buffers = Buffers::from_paths(vec![PathBuf::from("does_not_exist.rs")], Bounds::zero())
+            .await
+            .unwrap();
+
+        assert!(buffers.current().path.as_ref().unwrap().is_absolute());
+        assert!(buffers.current().to_text_document_item().is_some());
+        assert_eq!(buffers.current().lines, vec![String::new()]);
+    }
 
     #[test]
     fn bytes_iter() {

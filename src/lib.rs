@@ -45,7 +45,7 @@ pub struct Options {
     pub files: Vec<PathBuf>,
 }
 
-pub async fn run(mut options: Options) -> Result<(), Error> {
+pub async fn run(options: Options) -> Result<(), Error> {
     let stdin = Stdin::new()?;
     let term = Terminal::new().await?;
 
@@ -61,10 +61,6 @@ pub async fn run(mut options: Options) -> Result<(), Error> {
             Config::default()
         }
     };
-
-    for path in &mut options.files {
-        *path = path.canonicalize()?;
-    }
 
     let (ls_tx, ls_rx) = mpsc::channel(10);
 
