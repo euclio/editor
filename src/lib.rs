@@ -122,13 +122,8 @@ impl Editor {
 
                     info!("read key: {:?}", key);
 
-                    match key {
-                        Key::Char('q') | Key::Ctrl('c') => break,
-                        Key::Char('h') => self.buffers.current_mut().move_left(),
-                        Key::Char('j') => self.buffers.current_mut().move_down(),
-                        Key::Char('k') => self.buffers.current_mut().move_up(),
-                        Key::Char('l') => self.buffers.current_mut().move_right(),
-                        _ => (),
+                    if let ControlFlow::Break = self.handle_key(key).await {
+                        break;
                     }
                 }
 
@@ -157,6 +152,20 @@ impl Editor {
         info!("terminating");
 
         Ok(())
+    }
+
+    /// Handles user-supplied key input.
+    async fn handle_key(&mut self, key: Key) -> ControlFlow {
+        match key {
+            Key::Char('q') | Key::Ctrl('c') => return ControlFlow::Break,
+            Key::Char('h') => self.buffers.current_mut().move_left(),
+            Key::Char('j') => self.buffers.current_mut().move_down(),
+            Key::Char('k') => self.buffers.current_mut().move_up(),
+            Key::Char('l') => self.buffers.current_mut().move_right(),
+            _ => (),
+        }
+
+        ControlFlow::Continue
     }
 
     /// Creates a language server context from the current workspace and buffer.
@@ -194,6 +203,11 @@ impl Editor {
 
         Ok(())
     }
+}
+
+enum ControlFlow {
+    Continue,
+    Break,
 }
 
 /// Sets a panic hook that restores the terminal to its initial state and prints the panic message
