@@ -24,6 +24,7 @@ pub enum Key {
     ArrowRight,
     Char(char),
     Ctrl(char),
+    Backspace,
     Esc,
 }
 
@@ -72,6 +73,7 @@ impl KeyCodec {
         match byte {
             b'\x01'..=b'\x1A' => Key::Ctrl((byte | 0x60) as char),
             b'\x1b' => Key::Esc,
+            b'\x7f' => Key::Backspace,
             _ => Key::Char(byte as char),
         }
     }
