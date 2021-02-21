@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::Error;
 use futures::channel::mpsc;
 use futures::{select, StreamExt};
+use if_chain::if_chain;
 use log::*;
 use nix::sys::termios::{self, SetArg};
 use structopt::StructOpt;
@@ -31,7 +32,7 @@ mod ui;
 
 use buffer::Buffers;
 use config::Config;
-use lsp::{LanguageServerBridge, Message, Response, ToUri};
+use lsp::{LanguageServerBridge, Message, Response};
 use term::{Key, Stdin, Terminal};
 use tokio::signal::unix::{signal, SignalKind};
 use ui::{Bounds, Coordinates, Drawable};
@@ -68,12 +69,23 @@ pub async fn run(options: Options) -> Result<(), Error> {
     let buffers =
         Buffers::from_paths(options.files.clone(), Bounds::from_size(screen_size)).await?;
 
-    let editor = Editor {
+    let mut editor = Editor {
         current_dir: env::current_dir()?,
         buffers,
         ls_bridge: LanguageServerBridge::new(language_server_config, ls_tx),
         language_server_messages: ls_rx,
     };
+
+    for buffer in &editor.buffers {
+        if_chain! {
+            if let Some(syntax) = buffer.syntax;
+            if let Some(server) = editor.ls_bridge.get_or_init(editor.current_dir.clone(), lsp::Context { syntax }).await;
+            if let Some(text_document_item) = buffer.to_text_document_item();
+            then {
+                server.did_open_text_document(text_document_item).await?;
+            }
+        }
+    }
 
     editor.run(stdin, term).await
 }
@@ -92,16 +104,6 @@ impl Editor {
     async fn run(mut self, stdin: Stdin, mut term: Terminal) -> Result<(), Error> {
         let mut stdin = stdin.fuse();
         let mut sigwinch = signal(SignalKind::window_change())?.fuse();
-
-        if let Some(ctx) = self.ls_context() {
-            if let Some(server) = self.ls_bridge.server(ctx).await {
-                for buffer in &self.buffers {
-                    if let Some(text_document) = buffer.to_text_document_item() {
-                        server.did_open_text_document(text_document).await?;
-                    }
-                }
-            }
-        }
 
         loop {
             // TODO: Move to default?
@@ -135,7 +137,7 @@ impl Editor {
 
                     match message {
                         Message::Request(req) => {
-                            if let Some(server) = self.ls_bridge.server(ctx).await {
+                            if let Some(server) = self.ls_bridge.get(ctx) {
                                 info!("unknown request: {}", req.method);
                                 server.respond(Response::method_not_found(req.id)).await?;
                             }
@@ -166,18 +168,6 @@ impl Editor {
         }
 
         ControlFlow::Continue
-    }
-
-    /// Creates a language server context from the current workspace and buffer.
-    ///
-    /// Returns `None` if there is no active language for the current buffer.
-    fn ls_context(&self) -> Option<lsp::Context> {
-        let syntax = self.buffers.current().syntax?;
-
-        Some(lsp::Context {
-            root: self.current_dir.clone().to_uri(),
-            syntax,
-        })
     }
 
     async fn redraw(&self, term: &mut Terminal) -> Result<(), Error> {
