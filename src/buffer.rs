@@ -8,7 +8,7 @@ use euclid::{Point2D, Rect};
 use futures::stream::{self, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use log::*;
-use lsp_types::TextDocumentItem;
+use lsp_types::{TextDocumentItem, VersionedTextDocumentIdentifier};
 use tokio::fs::{self, File};
 use tokio::io::{self, AsyncBufReadExt, BufReader};
 
@@ -16,6 +16,7 @@ use crate::lsp::ToUri;
 use crate::syntax::Syntax;
 use crate::ui::{Bounds, Color, Context, Coordinates, Drawable};
 
+mod edit;
 mod highlight;
 mod motion;
 mod storage;
@@ -112,6 +113,9 @@ pub struct Buffer {
     /// Buffer contents.
     storage: Storage,
 
+    /// The version of the document. Increases after each edit, including undo/redo.
+    version: u32,
+
     /// The cursor position within the buffer.
     ///
     /// The on-screen cursor location is determined by offsetting this position with the viewport.
@@ -137,6 +141,7 @@ impl Buffer {
             path: None,
             cursor: Cursor::default(),
             storage: Storage::new(),
+            version: 0,
             syntax: None,
             highlighter: None,
             viewport: None,
@@ -170,6 +175,7 @@ impl Buffer {
         Ok(Buffer {
             cursor: Cursor::default(),
             storage: lines.into(),
+            version: 0,
             path: Some(path),
             syntax,
             highlighter: syntax.map(Highlighter::new),
@@ -185,8 +191,15 @@ impl Buffer {
                 .expect("language must be known to convert to text document item")
                 .into_language_id()
                 .to_owned(),
-            version: 0,
+            version: self.version.into(),
             text: self.storage.to_string(),
+        })
+    }
+
+    pub fn to_versioned_text_document_identifier(&self) -> Option<VersionedTextDocumentIdentifier> {
+        Some(VersionedTextDocumentIdentifier {
+            uri: self.path.as_ref()?.to_uri(),
+            version: Some(self.version.into()),
         })
     }
 
@@ -215,6 +228,7 @@ impl<'a> From<&'a str> for Buffer {
             cursor: Cursor::default(),
             syntax: None,
             storage: Storage::from(s),
+            version: 0,
             path: None,
             highlighter: None,
             viewport: None,

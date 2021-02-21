@@ -74,6 +74,7 @@ pub async fn run(options: Options) -> Result<(), Error> {
         buffers,
         ls_bridge: LanguageServerBridge::new(language_server_config, ls_tx),
         language_server_messages: ls_rx,
+        mode: Mode::Normal,
     };
 
     for buffer in &editor.buffers {
@@ -98,6 +99,8 @@ pub struct Editor {
 
     /// Receiver for requests and notifications from language servers.
     language_server_messages: mpsc::Receiver<(lsp::Context, lsp::Message)>,
+
+    mode: Mode,
 }
 
 impl Editor {
@@ -124,7 +127,7 @@ impl Editor {
 
                     info!("read key: {:?}", key);
 
-                    if let ControlFlow::Break = self.handle_key(key).await {
+                    if let ControlFlow::Break = self.handle_key(key).await? {
                         break;
                     }
                 }
@@ -157,17 +160,43 @@ impl Editor {
     }
 
     /// Handles user-supplied key input.
-    async fn handle_key(&mut self, key: Key) -> ControlFlow {
-        match key {
-            Key::Char('q') | Key::Ctrl('c') => return ControlFlow::Break,
-            Key::Char('h') => self.buffers.current_mut().move_left(),
-            Key::Char('j') => self.buffers.current_mut().move_down(),
-            Key::Char('k') => self.buffers.current_mut().move_up(),
-            Key::Char('l') => self.buffers.current_mut().move_right(),
+    async fn handle_key(&mut self, key: Key) -> Result<ControlFlow, Error> {
+        use Mode::*;
+
+        match (self.mode, key) {
+            (Normal, Key::Char('q')) => return Ok(ControlFlow::Break),
+            (Normal, Key::Char('h')) => self.buffers.current_mut().move_left(),
+            (Normal, Key::Char('i')) => self.mode = Insert,
+            (Normal, Key::Char('j')) => self.buffers.current_mut().move_down(),
+            (Normal, Key::Char('k')) => self.buffers.current_mut().move_up(),
+            (Normal, Key::Char('l')) => self.buffers.current_mut().move_right(),
+            (Insert, Key::Esc) => self.mode = Normal,
+            (Insert, Key::Char(c)) => self.insert_char(c).await?,
+            (Insert, Key::Return) => self.insert_char('\n').await?,
             _ => (),
         }
 
-        ControlFlow::Continue
+        Ok(ControlFlow::Continue)
+    }
+
+    /// Insert a character into the active buffer.
+    async fn insert_char(&mut self, c: char) -> Result<(), Error> {
+        let buffer = self.buffers.current_mut();
+        let edit = buffer.insert(c);
+
+        if_chain! {
+            if let Some(syntax) = buffer.syntax;
+            if let Some(versioned_identifier) = buffer.to_versioned_text_document_identifier();
+            if let Some(server) = self.ls_bridge.get(lsp::Context { syntax });
+            then {
+                server.did_change_text_document(
+                    versioned_identifier,
+                    vec![edit.to_text_document_content_change_event()],
+                ).await?;
+            }
+        }
+
+        Ok(())
     }
 
     async fn redraw(&self, term: &mut Terminal) -> Result<(), Error> {
@@ -192,6 +221,19 @@ impl Editor {
         term.refresh().await?;
 
         Ok(())
+    }
+}
+
+/// Editing mode.
+#[derive(Debug, Copy, Clone)]
+enum Mode {
+    Normal,
+    Insert,
+}
+
+impl Default for Mode {
+    fn default() -> Self {
+        Mode::Normal
     }
 }
 

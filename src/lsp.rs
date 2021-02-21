@@ -13,12 +13,13 @@ use futures::lock::Mutex;
 use futures::{future, SinkExt, TryStreamExt};
 use log::*;
 use lsp_types::notification::{
-    DidOpenTextDocument, Initialized, Notification as LspTypesNotification,
+    DidChangeTextDocument, DidOpenTextDocument, Initialized, Notification as LspTypesNotification,
 };
 use lsp_types::request::{Initialize, Request as LspTypesRequest};
 use lsp_types::{
-    ClientCapabilities, ClientInfo, DidOpenTextDocumentParams, InitializeParams, InitializeResult,
-    InitializedParams, ServerInfo, TextDocumentItem,
+    ClientCapabilities, ClientInfo, DidChangeTextDocumentParams, DidOpenTextDocumentParams,
+    InitializeParams, InitializeResult, InitializedParams, ServerInfo,
+    TextDocumentContentChangeEvent, TextDocumentItem, VersionedTextDocumentIdentifier,
 };
 use serde::Deserialize;
 use thiserror::Error;
@@ -234,6 +235,18 @@ impl LanguageServer {
     pub async fn did_open_text_document(&mut self, text_document: TextDocumentItem) -> Result<()> {
         self.notify::<DidOpenTextDocument>(DidOpenTextDocumentParams { text_document })
             .await
+    }
+
+    pub async fn did_change_text_document(
+        &mut self,
+        text_document: VersionedTextDocumentIdentifier,
+        content_changes: Vec<TextDocumentContentChangeEvent>,
+    ) -> Result<()> {
+        self.notify::<DidChangeTextDocument>(DidChangeTextDocumentParams {
+            text_document,
+            content_changes,
+        })
+        .await
     }
 
     async fn request<Req: LspTypesRequest>(&mut self, params: Req::Params) -> Result<Req::Result> {
