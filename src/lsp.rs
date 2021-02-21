@@ -4,7 +4,7 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::env;
 use std::num::Wrapping;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{self, Stdio};
 use std::sync::Arc;
 
@@ -42,9 +42,6 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// Context to identify a particular language server.
 #[derive(Debug, Clone)]
 pub struct Context {
-    /// Workspace root.
-    pub root: Uri,
-
     /// The hosted language.
     pub syntax: Syntax,
     // TODO: Split into client/server context and add server name?
@@ -87,7 +84,15 @@ impl LanguageServerBridge {
         }
     }
 
-    pub async fn server(&mut self, ctx: Context) -> Option<&mut LanguageServer> {
+    pub fn get(&mut self, ctx: Context) -> Option<&mut LanguageServer> {
+        self.language_to_server.get_mut(&ctx.syntax)
+    }
+
+    pub async fn get_or_init(
+        &mut self,
+        root: PathBuf,
+        ctx: Context,
+    ) -> Option<&mut LanguageServer> {
         match self.language_to_server.entry(ctx.syntax) {
             Entry::Occupied(entry) => Some(entry.into_mut()),
             Entry::Vacant(entry) => {
@@ -105,7 +110,7 @@ impl LanguageServerBridge {
                         }
                     };
 
-                let initialize_result = match server.initialize(ctx.root).await {
+                let initialize_result = match server.initialize(root.to_uri()).await {
                     Ok(result) => result,
                     Err(e) => {
                         info!("unable to initialize {}: {}", prog, e);
