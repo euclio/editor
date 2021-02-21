@@ -148,8 +148,11 @@ impl Buffer {
         self.highlighter = syntax.map(Highlighter::new);
     }
 
+    /// Open a new buffer containing the contents of the given path. The path must be absolute.
     pub async fn open(path: PathBuf) -> io::Result<Self> {
         info!("creating buffer for {}", path.display());
+
+        assert!(path.is_absolute(), "path must be absolute");
 
         let lines = if fs::metadata(&path).await.is_ok() {
             let reader = BufReader::new(File::open(&path).await?);
