@@ -16,6 +16,7 @@ use crate::lsp::ToUri;
 use crate::syntax::Syntax;
 use crate::ui::{Bounds, Color, Context, Coordinates, Drawable};
 
+mod edit;
 mod highlight;
 mod motion;
 mod storage;

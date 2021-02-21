@@ -74,6 +74,7 @@ pub async fn run(options: Options) -> Result<(), Error> {
         buffers,
         ls_bridge: LanguageServerBridge::new(language_server_config, ls_tx),
         language_server_messages: ls_rx,
+        mode: Mode::Normal,
     };
 
     for buffer in &editor.buffers {
@@ -98,6 +99,8 @@ pub struct Editor {
 
     /// Receiver for requests and notifications from language servers.
     language_server_messages: mpsc::Receiver<(lsp::Context, lsp::Message)>,
+
+    mode: Mode,
 }
 
 impl Editor {
@@ -158,12 +161,19 @@ impl Editor {
 
     /// Handles user-supplied key input.
     async fn handle_key(&mut self, key: Key) -> ControlFlow {
-        match key {
-            Key::Char('q') | Key::Ctrl('c') => return ControlFlow::Break,
-            Key::Char('h') => self.buffers.current_mut().move_left(),
-            Key::Char('j') => self.buffers.current_mut().move_down(),
-            Key::Char('k') => self.buffers.current_mut().move_up(),
-            Key::Char('l') => self.buffers.current_mut().move_right(),
+        use Mode::*;
+
+        match (self.mode, key) {
+            (Normal, Key::Char('q')) => return ControlFlow::Break,
+            (Normal, Key::Char('h')) => self.buffers.current_mut().move_left(),
+            (Normal, Key::Char('i')) => self.mode = Insert,
+            (Normal, Key::Char('j')) => self.buffers.current_mut().move_down(),
+            (Normal, Key::Char('k')) => self.buffers.current_mut().move_up(),
+            (Normal, Key::Char('l')) => self.buffers.current_mut().move_right(),
+            (Insert, Key::Esc) => self.mode = Normal,
+            (Insert, Key::Char(c)) => {
+                let edit = self.buffers.current_mut().insert(c);
+            }
             _ => (),
         }
 
@@ -192,6 +202,19 @@ impl Editor {
         term.refresh().await?;
 
         Ok(())
+    }
+}
+
+/// Editing mode.
+#[derive(Debug, Copy, Clone)]
+enum Mode {
+    Normal,
+    Insert,
+}
+
+impl Default for Mode {
+    fn default() -> Self {
+        Mode::Normal
     }
 }
 

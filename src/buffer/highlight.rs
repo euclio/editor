@@ -20,12 +20,12 @@ use std::convert::TryFrom;
 use lazy_static::lazy_static;
 use log::*;
 use maplit::hashmap;
-use tree_sitter::{Parser, Point, Query, QueryCursor, Range, Tree};
+use tree_sitter::{InputEdit, Parser, Point, Query, QueryCursor, Range, Tree};
 
 use crate::syntax::Syntax;
 use crate::ui::{Bounds, Color, Coordinates, Screen};
 
-use super::{Buffer, Position, Span};
+use super::{edit::Edit, Buffer, Position, Span};
 
 lazy_static! {
     static ref DEFAULT_THEME: HashMap<&'static str, Color> = hashmap! {
@@ -106,6 +106,34 @@ impl Highlighter {
             parser: RefCell::new(parser),
             old_tree: None,
             theme,
+        }
+    }
+
+    pub fn edit(
+        &mut self,
+        edit: &Edit,
+        start_position: Position,
+        old_end_position: Position,
+        new_end_position: Position,
+    ) {
+        if let Some(tree) = &mut self.old_tree {
+            tree.edit(&InputEdit {
+                start_byte: edit.range.start.byte,
+                old_end_byte: edit.range.end.byte,
+                new_end_byte: edit.range.start.byte + edit.new_text.len(),
+                start_position: Point {
+                    row: start_position.y,
+                    column: start_position.x,
+                },
+                old_end_position: Point {
+                    row: old_end_position.y,
+                    column: old_end_position.x,
+                },
+                new_end_position: Point {
+                    row: new_end_position.y,
+                    column: new_end_position.x,
+                },
+            });
         }
     }
 
