@@ -2,7 +2,6 @@
 
 use std::cmp;
 use std::env;
-use std::iter;
 use std::path::PathBuf;
 
 use euclid::{Point2D, Rect};
@@ -19,9 +18,11 @@ use crate::ui::{Bounds, Color, Context, Coordinates, Drawable};
 
 mod highlight;
 mod motion;
+mod storage;
 
 use highlight::Highlighter;
 use motion::Cursor;
+use storage::Storage;
 
 /// Unit for buffer-internal positions and lengths.
 pub struct BufferSpace;
@@ -108,8 +109,8 @@ pub struct Buffer {
     /// The file path that this buffer represents.
     path: Option<PathBuf>,
 
-    /// The lines of the file.
-    lines: Vec<String>,
+    /// Buffer contents.
+    storage: Storage,
 
     /// The cursor position within the buffer.
     ///
@@ -135,7 +136,7 @@ impl Buffer {
         Buffer {
             path: None,
             cursor: Cursor::default(),
-            lines: vec![String::new()],
+            storage: Storage::new(),
             syntax: None,
             highlighter: None,
             viewport: None,
@@ -165,7 +166,7 @@ impl Buffer {
 
         Ok(Buffer {
             cursor: Cursor::default(),
-            lines,
+            storage: lines.into(),
             path: Some(path),
             syntax,
             highlighter: syntax.map(Highlighter::new),
@@ -182,14 +183,8 @@ impl Buffer {
                 .into_language_id()
                 .to_owned(),
             version: 0,
-            text: self.lines.join("\n"),
+            text: self.storage.to_string(),
         })
-    }
-
-    pub fn bytes(&self) -> impl Iterator<Item = u8> + '_ {
-        self.lines
-            .iter()
-            .flat_map(|line| line.bytes().chain(iter::once(b'\n')))
     }
 
     /// Returns the cursor position relative to the viewport.
@@ -216,7 +211,7 @@ impl<'a> From<&'a str> for Buffer {
         Buffer {
             cursor: Cursor::default(),
             syntax: None,
-            lines: s.lines().map(|line| line.to_owned()).collect(),
+            storage: Storage::from(s),
             path: None,
             highlighter: None,
             viewport: None,
@@ -234,8 +229,8 @@ impl Drawable for Buffer {
         let tilde = String::from("~");
 
         for (row, line) in self
-            .lines
-            .iter()
+            .storage
+            .iter_lines()
             .skip(viewport.min_y())
             .pad_using(viewport.height(), |_| &tilde)
             .enumerate()
@@ -249,7 +244,7 @@ impl Drawable for Buffer {
             }
         }
 
-        for row in (self.lines.len() - viewport.min_y())..ctx.bounds.height().into() {
+        for row in (self.storage.lines() - viewport.min_y())..ctx.bounds.height().into() {
             let bounds = Bounds::new(
                 Coordinates::new(0, row as u16),
                 Coordinates::new(1, row as u16 + 1),
@@ -273,7 +268,7 @@ mod tests {
 
     use crate::ui::{Bounds, Context, Drawable, Screen, Size};
 
-    use super::{Buffer, Buffers, Cursor, Position, Span};
+    use super::{Buffer, Buffers, Cursor, Position, Span, Storage};
 
     #[tokio::test]
     async fn buffers_open_existing_path() {
@@ -291,19 +286,11 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(buffers.current().path.as_ref().unwrap().is_absolute());
-        assert!(buffers.current().to_text_document_item().is_some());
-        assert_eq!(buffers.current().lines, vec![String::new()]);
-    }
+        let current = buffers.current();
 
-    #[test]
-    fn bytes_iter() {
-        let buffer = Buffer::from(indoc! {"
-            Lorem
-            Ipsum
-        "});
-
-        assert_eq!(buffer.bytes().collect::<Vec<_>>(), b"Lorem\nIpsum\n",);
+        assert!(current.path.as_ref().unwrap().is_absolute());
+        assert!(current.to_text_document_item().is_some());
+        assert_eq!(current.storage, Storage::new());
     }
 
     #[test]

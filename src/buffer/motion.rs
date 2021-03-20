@@ -91,12 +91,12 @@ impl Buffer {
 
         if y_offset != 0 {
             self.cursor.move_y(y_offset);
-            self.cursor.snap(self.current_line_length());
+            self.cursor.snap(self.storage.line_width(self.cursor.y()));
         }
 
         if let Some(viewport) = &mut self.viewport {
             if self.cursor.y() > SCROLLOFF && self.cursor.y() > viewport.max_y() - SCROLLOFF {
-                let max_y = cmp::min(self.cursor.y() + SCROLLOFF, self.lines.len());
+                let max_y = cmp::min(self.cursor.y() + SCROLLOFF, self.storage.lines());
                 viewport.origin.y = max_y - viewport.height();
             } else if self.cursor.y() < viewport.min_y() + SCROLLOFF {
                 viewport.origin.y = self.cursor.y().saturating_sub(SCROLLOFF);
@@ -155,7 +155,7 @@ impl Buffer {
 
     /// Returns true if the cursor is on the last line of the buffer.
     fn at_last_line(&self) -> bool {
-        self.cursor.y() == self.lines.len() - 1
+        self.cursor.y() == self.storage.lines() - 1
     }
 
     /// Returns true if the cursor is in the leftmost column.
@@ -165,14 +165,7 @@ impl Buffer {
 
     /// Returns true if the cursor is in the rightmost column for the given line.
     fn at_end_of_line(&self) -> bool {
-        self.cursor.x() >= self.current_line_length()
-    }
-
-    /// Returns the current line length in cells.
-    fn current_line_length(&self) -> usize {
-        let current_line = &self.lines[self.cursor.y()];
-        // FIXME: Naively assumes ASCII.
-        current_line.len()
+        self.cursor.x() >= self.storage.line_width(self.cursor.y())
     }
 }
 

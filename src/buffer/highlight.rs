@@ -16,7 +16,6 @@ use std::cell::RefCell;
 use std::cmp;
 use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::ops::Index;
 
 use lazy_static::lazy_static;
 use log::*;
@@ -26,7 +25,7 @@ use tree_sitter::{Parser, Point, Query, QueryCursor, Range, Tree};
 use crate::syntax::Syntax;
 use crate::ui::{Bounds, Color, Coordinates, Screen};
 
-use super::{Buffer, Span};
+use super::{Buffer, Position, Span};
 
 lazy_static! {
     static ref DEFAULT_THEME: HashMap<&'static str, Color> = hashmap! {
@@ -115,7 +114,11 @@ impl Highlighter {
         debug!("starting highlighting");
 
         let tree = self.parser.borrow_mut().parse_with(
-            &mut |_, point| buffer.slice_at(point),
+            &mut |_, point| {
+                buffer
+                    .storage
+                    .slice_at(Position::new(point.column, point.row))
+            },
             self.old_tree.as_ref(),
         );
 
@@ -133,8 +136,16 @@ impl Highlighter {
         let (start, end) = span_to_points(viewport);
         cursor.set_point_range(start, end);
 
-        let captures_query =
-            cursor.captures(&self.query, tree.root_node(), |node| &buffer[node.range()]);
+        let captures_query = cursor.captures(&self.query, tree.root_node(), |node| {
+            let Range {
+                start_point,
+                end_point,
+                ..
+            } = node.range();
+            let start = Position::new(start_point.column, start_point.row);
+            let end = Position::new(end_point.column, end_point.row);
+            &buffer.storage[start..end]
+        });
 
         for (m, _) in captures_query {
             for capture in m.captures {
@@ -144,16 +155,9 @@ impl Highlighter {
                 let color = self.theme.color_for(index);
 
                 if log_enabled!(log::Level::Debug) {
-                    // The capture range may span across lines, so we can't use the buffer's
-                    // `Index<Range>` implementation.
-                    let text = String::from_utf8(
-                        buffer
-                            .bytes()
-                            .skip(range.start_byte)
-                            .take(range.end_byte - range.start_byte)
-                            .collect(),
-                    )
-                    .expect("buffer must be UTF-8");
+                    // The capture range may span across lines, so we can't use the storage's
+                    // `Index` implementation.
+                    let text = &buffer.storage.to_string()[range.start_byte..range.end_byte];
 
                     debug!(
                         "capture={} color={:?} text={:?}",
@@ -209,39 +213,6 @@ fn highlight_range(screen: &mut Screen, viewport: Span, range: Range, color: Col
         );
 
         screen.apply_color(highlight_bounds, color);
-    }
-}
-
-impl Buffer {
-    /// Return a slice of text starting at the given point.
-    ///
-    /// The slice returned may be of any length.
-    fn slice_at<'a>(&'a self, point: Point) -> impl AsRef<[u8]> + 'a {
-        // TODO: Should this take usize to support very large buffers?
-        if point.row == self.lines.len() {
-            return "";
-        }
-
-        let line = &self.lines[point.row];
-
-        if point.column == line.len() {
-            "\n"
-        } else {
-            &line[point.column..]
-        }
-    }
-}
-
-impl Index<Range> for Buffer {
-    type Output = str;
-
-    fn index(&self, r: Range) -> &str {
-        assert!(
-            r.start_point.row == r.end_point.row,
-            "cannot index across rows: {:?}",
-            r,
-        );
-        &self.lines[r.start_point.row][r.start_point.column..r.end_point.column]
     }
 }
 
