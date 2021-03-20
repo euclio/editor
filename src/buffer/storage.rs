@@ -29,6 +29,17 @@ impl Storage {
         self.lines.len()
     }
 
+    /// Returns the total byte length of the buffer.
+    pub fn len(&self) -> usize {
+        let mut len = 0;
+
+        for line in &self.lines {
+            len += line.len() + 1
+        }
+
+        len
+    }
+
     /// Returns the width of a given line.
     pub fn line_width(&self, line: usize) -> usize {
         // FIXME: Naively assumes ASCII

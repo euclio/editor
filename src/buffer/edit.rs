@@ -36,7 +36,7 @@ impl Buffer {
     }
 
     fn position_of_byte(&self, byte: usize) -> Position {
-        // TODO: Assert buffer len
+        assert!(byte < self.storage.len());
 
         let mut remaining = byte;
 
@@ -45,6 +45,7 @@ impl Buffer {
                 return Position::new(remaining, row);
             }
 
+            // SOMETHING WRONG WITH THIS LINE
             remaining -= line.len() - 1;
         }
 
