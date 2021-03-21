@@ -5,13 +5,15 @@ use std::ops::Range;
 
 use lsp_types::TextDocumentContentChangeEvent;
 
-use super::{Buffer, Position};
+use crate::buffer::units::{ByteIndex, CharPosition};
+
+use super::Buffer;
 
 /// An edit that can be applied to a buffer.
 #[derive(Debug)]
 pub struct Edit {
-    pub range: Range<usize>,
-    pub character_range: Range<Position>,
+    pub range: Range<ByteIndex>,
+    pub character_range: Range<CharPosition>,
     pub new_text: String,
 }
 
@@ -39,7 +41,7 @@ impl Edit {
 
 impl Buffer {
     /// Returns the byte index of the current cursor position.
-    pub fn byte_at_cursor(&self) -> usize {
+    fn byte_at_cursor(&self) -> ByteIndex {
         let mut byte = 0;
 
         for line in self.storage.iter_lines().take(self.cursor.y()) {
@@ -48,7 +50,7 @@ impl Buffer {
 
         byte += self.cursor.x();
 
-        byte
+        ByteIndex::new(byte)
     }
 
     /// Inserts a character at the current cursor position.
@@ -56,11 +58,11 @@ impl Buffer {
     /// Returns an `Edit` representing the change.
     pub fn insert(&mut self, c: char) -> Edit {
         let start = self.byte_at_cursor();
-        let start_position = Position::new(self.cursor.x(), self.cursor.y());
+        let start_position = self.storage.byte_to_char_position(start);
 
         let edit = Edit {
             range: start..start,
-            character_range: start_position..start_position, // FIXME: naively assumes ASCII
+            character_range: start_position..start_position,
             new_text: c.to_string(),
         };
 
@@ -82,13 +84,13 @@ impl Buffer {
         let old_end_position = self.storage.position_of_byte(edit.range.end);
 
         self.storage
-            .replace_range(edit.range.start..edit.range.end, &edit.new_text);
+            .replace_range(edit.range.start.0..edit.range.end.0, &edit.new_text);
 
         self.version += 1;
 
         let new_end_position = self
             .storage
-            .position_of_byte(edit.range.start + edit.new_text.len());
+            .position_of_byte(edit.range.start + ByteIndex::new(edit.new_text.len()));
 
         if let Some(highlighter) = &mut self.highlighter {
             highlighter.edit(edit, start_position, old_end_position, new_end_position);
@@ -102,9 +104,11 @@ mod tests {
 
     use crate::buffer::{Buffer, Cursor};
 
+    use super::ByteIndex;
+
     #[test]
     fn byte_at_cursor() {
-        assert_eq!(Buffer::new().byte_at_cursor(), 0);
+        assert_eq!(Buffer::new().byte_at_cursor(), ByteIndex::new(0));
 
         let mut buffer = Buffer::from(indoc! {"
             Lorem ipsum
@@ -112,7 +116,7 @@ mod tests {
         "});
         buffer.cursor = Cursor::at(5, 1);
 
-        assert_eq!(buffer.byte_at_cursor(), 17);
+        assert_eq!(buffer.byte_at_cursor(), ByteIndex::new(17));
     }
 
     #[test]
@@ -125,7 +129,8 @@ mod tests {
         assert_eq!(buf.storage.to_string(), "a\n");
 
         assert_eq!(edit.new_text, "a");
-        assert_eq!(edit.range.start..edit.range.end, 0..0);
+        assert_eq!(edit.range.start, ByteIndex::new(0));
+        assert_eq!(edit.range.end, ByteIndex::new(0));
         assert!(buf.version > old_version);
     }
 

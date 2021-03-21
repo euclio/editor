@@ -22,10 +22,11 @@ use log::*;
 use maplit::hashmap;
 use tree_sitter::{InputEdit, Parser, Point, Query, QueryCursor, Range, Tree};
 
+use crate::buffer::units::BytePosition;
 use crate::syntax::Syntax;
 use crate::ui::{Bounds, Color, Coordinates, Screen};
 
-use super::{edit::Edit, Buffer, Position, Span};
+use super::{edit::Edit, Buffer, Span};
 
 lazy_static! {
     static ref DEFAULT_THEME: HashMap<&'static str, Color> = hashmap! {
@@ -113,15 +114,15 @@ impl Highlighter {
     pub fn edit(
         &mut self,
         edit: &Edit,
-        start_position: Position,
-        old_end_position: Position,
-        new_end_position: Position,
+        start_position: BytePosition,
+        old_end_position: BytePosition,
+        new_end_position: BytePosition,
     ) {
         if let Some(tree) = &mut self.old_tree {
             tree.edit(&InputEdit {
-                start_byte: edit.range.start,
-                old_end_byte: edit.range.end,
-                new_end_byte: edit.range.start + edit.new_text.len(),
+                start_byte: edit.range.start.0,
+                old_end_byte: edit.range.end.0,
+                new_end_byte: edit.range.start.0 + edit.new_text.len(),
                 start_position: Point {
                     row: start_position.y,
                     column: start_position.x,
@@ -146,7 +147,7 @@ impl Highlighter {
             &mut |_, point| {
                 buffer
                     .storage
-                    .slice_at(Position::new(point.column, point.row))
+                    .slice_at(BytePosition::new(point.column, point.row))
             },
             self.old_tree.as_ref(),
         );
@@ -171,8 +172,8 @@ impl Highlighter {
                 end_point,
                 ..
             } = node.range();
-            let start = Position::new(start_point.column, start_point.row);
-            let end = Position::new(end_point.column, end_point.row);
+            let start = BytePosition::new(start_point.column, start_point.row);
+            let end = BytePosition::new(end_point.column, end_point.row);
             &buffer.storage[start..end]
         });
 

@@ -1,8 +1,9 @@
 use std::cmp;
 use std::fmt;
+use std::iter;
 use std::ops::{Index, Range};
 
-use super::Position;
+use crate::buffer::units::{ByteIndex, BytePosition, CharPosition};
 
 /// Underlying storage for the buffer contents.
 ///
@@ -54,7 +55,7 @@ impl Storage {
     /// Return a slice of the underlying text starting at the given position.
     ///
     /// The slice returned may be of any length.
-    pub fn slice_at(&self, pos: Position) -> impl AsRef<[u8]> + '_ {
+    pub fn slice_at(&self, pos: BytePosition) -> impl AsRef<[u8]> + '_ {
         if pos.y == self.lines() {
             return "";
         }
@@ -68,15 +69,39 @@ impl Storage {
         }
     }
 
+    /// Returns the character position of a given byte. The byte must lie on a character boundary.
+    pub fn byte_to_char_position(&self, byte: ByteIndex) -> CharPosition {
+        let byte_position = self.position_of_byte(byte);
+
+        let line = &self.lines[byte_position.y];
+
+        assert!(line.is_char_boundary(byte_position.x));
+        let char_index = line
+            .char_indices()
+            .chain(iter::once((line.len(), '\n')))
+            .enumerate()
+            .find_map(|(char_count, (char_index, _))| {
+                if byte_position.x == char_index {
+                    Some(char_count)
+                } else {
+                    None
+                }
+            })
+            .expect("byte position not on character boundary");
+
+        CharPosition::new(char_index, byte_position.y)
+    }
+
     /// Returns the row and column of a byte index.
-    pub fn position_of_byte(&self, byte: usize) -> Position {
+    pub fn position_of_byte(&self, byte: ByteIndex) -> BytePosition {
+        let byte = byte.0;
         assert!(byte < self.len());
 
         let mut remaining = byte;
 
         for (row, line) in self.iter_lines().enumerate() {
             if remaining <= line.len() {
-                return Position::new(remaining, row);
+                return BytePosition::new(remaining, row);
             }
 
             remaining -= line.len() + 1;
@@ -178,10 +203,10 @@ impl fmt::Display for Storage {
     }
 }
 
-impl Index<Range<Position>> for Storage {
+impl Index<Range<BytePosition>> for Storage {
     type Output = str;
 
-    fn index(&self, Range { start, end }: Range<Position>) -> &Self::Output {
+    fn index(&self, Range { start, end }: Range<BytePosition>) -> &Self::Output {
         assert!(
             start.y == end.y,
             "cannot index across rows: {:?}",
@@ -195,7 +220,7 @@ impl Index<Range<Position>> for Storage {
 mod tests {
     use indoc::indoc;
 
-    use super::{Position, Storage};
+    use super::{ByteIndex, BytePosition, Storage};
 
     #[test]
     fn from_empty_lines() {
@@ -206,19 +231,28 @@ mod tests {
     #[test]
     fn position_of_byte_zero() {
         let storage = Storage::new();
-        assert_eq!(storage.position_of_byte(0), Position::zero());
+        assert_eq!(
+            storage.position_of_byte(ByteIndex::new(0)),
+            BytePosition::zero()
+        );
     }
 
     #[test]
     fn position_of_byte_after_empty_line() {
         let storage = Storage::from("\na\n");
-        assert_eq!(storage.position_of_byte(1), Position::new(0, 1));
+        assert_eq!(
+            storage.position_of_byte(ByteIndex::new(1)),
+            BytePosition::new(0, 1)
+        );
     }
 
     #[test]
     fn position_of_byte_beginning_of_line() {
         let storage = Storage::from("a\nb\nc");
-        assert_eq!(storage.position_of_byte(2), Position::new(0, 1));
+        assert_eq!(
+            storage.position_of_byte(ByteIndex::new(2)),
+            BytePosition::new(0, 1)
+        );
     }
 
     #[test]

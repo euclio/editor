@@ -20,6 +20,7 @@ mod edit;
 mod highlight;
 mod motion;
 mod storage;
+mod units;
 
 use highlight::Highlighter;
 use motion::Cursor;
