@@ -25,6 +25,7 @@ pub enum Key {
     Char(char),
     Ctrl(char),
     Backspace,
+    Return,
     Esc,
 }
 
@@ -70,7 +71,9 @@ struct KeyCodec;
 
 impl KeyCodec {
     fn parse_byte(byte: u8) -> Key {
+        #[allow(clippy::match_overlapping_arm)] // rust-lang/rust-clippy#6603
         match byte {
+            b'\x0D' => Key::Return,
             b'\x01'..=b'\x1A' => Key::Ctrl((byte | 0x60) as char),
             b'\x1b' => Key::Esc,
             b'\x7f' => Key::Backspace,
