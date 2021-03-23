@@ -32,6 +32,15 @@ impl Cursor {
         self.pos.y
     }
 
+    pub fn set_x(&mut self, x: usize) {
+        self.pos.x = x;
+        self.desired_col = x;
+    }
+
+    pub fn set_y(&mut self, y: usize) {
+        self.pos.y = y;
+    }
+
     /// Moves the cursor left or right a number of columns.
     pub fn move_x(&mut self, offset: isize) {
         let n = usize::try_from(offset.abs()).expect("expected non-negative offset");

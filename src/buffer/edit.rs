@@ -18,6 +18,11 @@ pub struct Edit {
 }
 
 impl Edit {
+    /// Returns the index of the end of the replaced text.
+    pub fn new_end(&self) -> ByteIndex {
+        self.range.start + ByteIndex::new(self.new_text.len())
+    }
+
     pub fn to_text_document_content_change_event(&self) -> TextDocumentContentChangeEvent {
         TextDocumentContentChangeEvent {
             range: Some(lsp_types::Range {
@@ -57,44 +62,47 @@ impl Buffer {
     ///
     /// Returns an `Edit` representing the change.
     pub fn insert(&mut self, c: char) -> Edit {
-        let start = self.byte_at_cursor();
-        let start_position = self.storage.byte_to_char_position(start);
+        let byte = self.byte_at_cursor();
+        let edit = self.edit(byte..byte, c.to_string());
 
-        let edit = Edit {
-            range: start..start,
-            character_range: start_position..start_position,
-            new_text: c.to_string(),
-        };
-
-        self.apply_edit(&edit);
-
-        if c == '\n' {
-            self.cursor
-                .move_x(-isize::try_from(self.cursor.x()).expect("cursor offset too large"));
-            self.cursor.move_y(1)
-        } else {
-            self.cursor.move_x(1);
-        }
+        let pos = self.storage.position_of_byte(edit.new_end());
+        self.cursor.set_x(pos.x);
+        self.cursor.set_y(pos.y);
 
         edit
     }
 
-    fn apply_edit(&mut self, edit: &Edit) {
-        let start_position = self.storage.position_of_byte(edit.range.start);
-        let old_end_position = self.storage.position_of_byte(edit.range.end);
+    /// Replaces a byte range in the storage with a new string, and constructs an `Edit` that
+    /// represents that change.
+    ///
+    /// - The buffer's version is incremented.
+    /// - The buffer's highlighter is notified of the edit.
+    fn edit(&mut self, range: Range<ByteIndex>, new_text: String) -> Edit {
+        let start_position = self.storage.position_of_byte(range.start);
+        let old_end_position = self.storage.position_of_byte(range.end);
+
+        let character_range = self.storage.byte_to_char_position(range.start)
+            ..self.storage.byte_to_char_position(range.end);
 
         self.storage
-            .replace_range(edit.range.start.0..edit.range.end.0, &edit.new_text);
-
+            .replace_range(range.start.0..range.end.0, &new_text);
         self.version += 1;
 
         let new_end_position = self
             .storage
-            .position_of_byte(edit.range.start + ByteIndex::new(edit.new_text.len()));
+            .position_of_byte(range.start + ByteIndex::new(new_text.len()));
+
+        let edit = Edit {
+            range,
+            character_range,
+            new_text,
+        };
 
         if let Some(highlighter) = &mut self.highlighter {
-            highlighter.edit(edit, start_position, old_end_position, new_end_position);
+            highlighter.edit(&edit, start_position, old_end_position, new_end_position);
         }
+
+        edit
     }
 }
 
