@@ -171,12 +171,33 @@ impl Editor {
             (Normal, Key::Char('k')) => self.buffers.current_mut().move_up(),
             (Normal, Key::Char('l')) => self.buffers.current_mut().move_right(),
             (Insert, Key::Esc) => self.mode = Normal,
+            (Insert, Key::Backspace) => self.delete_char().await?,
             (Insert, Key::Char(c)) => self.insert_char(c).await?,
             (Insert, Key::Return) => self.insert_char('\n').await?,
             _ => (),
         }
 
         Ok(ControlFlow::Continue)
+    }
+
+    async fn delete_char(&mut self) -> Result<(), Error> {
+        let buffer = self.buffers.current_mut();
+        let edit = buffer.delete();
+
+        if_chain! {
+            if let Some(edit) = edit;
+            if let Some(syntax) = buffer.syntax;
+            if let Some(versioned_identifier) = buffer.to_versioned_text_document_identifier();
+            if let Some(server) = self.ls_bridge.get(lsp::Context { syntax });
+            then {
+                server.did_change_text_document(
+                    versioned_identifier,
+                    vec![edit.to_text_document_content_change_event()],
+                ).await?;
+            }
+        }
+
+        Ok(())
     }
 
     /// Insert a character into the active buffer.

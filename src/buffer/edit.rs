@@ -72,6 +72,25 @@ impl Buffer {
         edit
     }
 
+    /// Delete the character immediately preceding the cursor.
+    pub fn delete(&mut self) -> Option<Edit> {
+        let end = self.byte_at_cursor();
+
+        if end == ByteIndex::new(0) {
+            return None;
+        }
+
+        // FIXME: Naively assumes ASCII
+        let start = end - ByteIndex::new(1);
+        let edit = self.edit(start..end, String::new());
+
+        let pos = self.storage.position_of_byte(start);
+        self.cursor.set_x(pos.x);
+        self.cursor.set_y(pos.y);
+
+        Some(edit)
+    }
+
     /// Replaces a byte range in the storage with a new string, and constructs an `Edit` that
     /// represents that change.
     ///
@@ -153,5 +172,39 @@ mod tests {
         buf.insert('\n');
         assert_eq!(buf.cursor.x(), 0);
         assert_eq!(buf.cursor.y(), 1);
+    }
+
+    #[test]
+    fn delete_at_middle_of_line() {
+        let mut buf = Buffer::from("abc");
+        buf.cursor.set_x(2);
+
+        buf.delete();
+
+        assert_eq!(buf.storage.to_string(), "ac\n");
+        assert_eq!(buf.cursor.x(), 1);
+        assert_eq!(buf.cursor.y(), 0);
+    }
+
+    #[test]
+    fn delete_beginning_of_line() {
+        let mut buf = Buffer::from("a\nb");
+        buf.cursor.set_y(1);
+        buf.cursor.set_x(0);
+
+        buf.delete();
+
+        assert_eq!(buf.storage.to_string(), "ab\n");
+        assert_eq!(buf.cursor.x(), 1);
+        assert_eq!(buf.cursor.y(), 0);
+    }
+
+    #[test]
+    fn delete_beginning_of_buffer() {
+        let mut buf = Buffer::new();
+
+        let edit = buf.delete();
+
+        assert!(edit.is_none());
     }
 }
