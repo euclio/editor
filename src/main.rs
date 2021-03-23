@@ -10,12 +10,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let options = Options::from_args();
 
-    let mut runtime = Builder::new()
-        .basic_scheduler()
-        .enable_io()
-        .build()
-        .unwrap();
-
+    let runtime = Builder::new_current_thread().enable_io().build()?;
     runtime.block_on(editor::run(options))?;
 
     Ok(())

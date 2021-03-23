@@ -25,6 +25,7 @@ use serde::Deserialize;
 use thiserror::Error;
 use tokio::io::{self, AsyncBufReadExt, BufReader};
 use tokio::process::{ChildStdin, Command};
+use tokio_stream::wrappers::LinesStream;
 use tokio_util::codec::{FramedRead, FramedWrite};
 
 use crate::config::LanguageServerConfig;
@@ -164,8 +165,7 @@ impl LanguageServer {
         let stderr = child.stderr.take().expect("stderr was not piped");
 
         tokio::spawn(async {
-            BufReader::new(stderr)
-                .lines()
+            LinesStream::new(BufReader::new(stderr).lines())
                 .try_for_each(|line| {
                     info!("stderr: {}", line);
                     future::ready(Ok(()))

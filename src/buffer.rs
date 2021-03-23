@@ -11,6 +11,7 @@ use log::*;
 use lsp_types::{TextDocumentItem, VersionedTextDocumentIdentifier};
 use tokio::fs::{self, File};
 use tokio::io::{self, AsyncBufReadExt, BufReader};
+use tokio_stream::wrappers::LinesStream;
 
 use crate::lsp::ToUri;
 use crate::syntax::Syntax;
@@ -162,7 +163,7 @@ impl Buffer {
 
         let lines = if fs::metadata(&path).await.is_ok() {
             let reader = BufReader::new(File::open(&path).await?);
-            reader.lines().try_collect().await?
+            LinesStream::new(reader.lines()).try_collect().await?
         } else {
             info!("{} does not exist", path.display());
             vec![String::new()]

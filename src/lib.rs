@@ -21,6 +21,7 @@ use if_chain::if_chain;
 use log::*;
 use nix::sys::termios::{self, SetArg};
 use structopt::StructOpt;
+use tokio_stream::wrappers::SignalStream;
 
 mod buffer;
 mod config;
@@ -106,7 +107,7 @@ pub struct Editor {
 impl Editor {
     async fn run(mut self, stdin: Stdin, mut term: Terminal) -> Result<(), Error> {
         let mut stdin = stdin.fuse();
-        let mut sigwinch = signal(SignalKind::window_change())?.fuse();
+        let mut sigwinch = SignalStream::new(signal(SignalKind::window_change())?).fuse();
 
         loop {
             // TODO: Move to default?
