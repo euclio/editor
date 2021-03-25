@@ -328,10 +328,10 @@ mod tests {
 
         buffer.draw(&mut ctx);
 
-        assert_eq!(screen[(0, 0)].c, ' ');
-        assert_eq!(screen[(1, 0)].c, '~');
-        assert_eq!(screen[(1, 1)].c, ' ');
-        assert_eq!(screen[(2, 0)].c, '~');
+        assert_eq!(screen[(0, 0)].c, None);
+        assert_eq!(screen[(1, 0)].c, Some('~'));
+        assert_eq!(screen[(1, 1)].c, None);
+        assert_eq!(screen[(2, 0)].c, Some('~'));
     }
 
     #[test]
@@ -353,8 +353,8 @@ mod tests {
         buffer.viewport = Some(Span::from_size(size.cast().cast_unit()));
         buffer.draw(&mut ctx);
 
-        assert_eq!(screen[(0, 0)].c, 'f');
-        assert_eq!(screen[(1, 0)].c, 'b');
+        assert_eq!(screen[(0, 0)].c, Some('f'));
+        assert_eq!(screen[(1, 0)].c, Some('b'));
     }
 
     #[test]
@@ -378,8 +378,8 @@ mod tests {
 
         buffer.draw(&mut ctx);
 
-        assert_eq!(screen[(0, 0)].c, 'g');
-        assert_eq!(screen[(2, 2)].c, 's');
+        assert_eq!(screen[(0, 0)].c, Some('g'));
+        assert_eq!(screen[(2, 2)].c, Some('s'));
     }
 
     #[test]
@@ -400,11 +400,9 @@ mod tests {
 
         buffer.draw(&mut ctx);
 
-        println!("{:?}", screen);
-
-        assert_eq!(screen[(0, 0)].c, 'e');
-        assert_eq!(screen[(0, 1)].c, 'l');
-        assert_eq!(screen[(1, 0)].c, ' ');
+        assert_eq!(screen[(0, 0)].c, Some('e'));
+        assert_eq!(screen[(0, 1)].c, Some('l'));
+        assert_eq!(screen[(1, 0)].c, None);
     }
 
     #[test]

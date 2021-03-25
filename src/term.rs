@@ -111,8 +111,12 @@ impl Terminal {
                         last_color = col.color;
                     }
 
-                    // FIXME: Doesn't support non-ASCII
-                    self.stdout.write_u8(col.c as u8).await?;
+                    if let Some(c) = col.c {
+                        let mut buf = [0; 4];
+                        self.stdout
+                            .write_all(c.encode_utf8(&mut buf).as_bytes())
+                            .await?;
+                    }
                 }
 
                 if rows.peek().is_some() {

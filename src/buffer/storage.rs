@@ -3,6 +3,8 @@ use std::fmt;
 use std::iter;
 use std::ops::{Index, Range};
 
+use unicode_width::UnicodeWidthStr;
+
 use crate::buffer::units::{ByteIndex, BytePosition, CharPosition};
 
 /// Underlying storage for the buffer contents.
@@ -41,10 +43,9 @@ impl Storage {
         len
     }
 
-    /// Returns the width of a given line.
+    /// Returns width of a given line in columns.
     pub fn line_width(&self, line: usize) -> usize {
-        // FIXME: Naively assumes ASCII
-        self.lines[line].len()
+        self.lines[line].width()
     }
 
     /// Returns an iterator over the lines of the storage.
@@ -226,6 +227,21 @@ mod tests {
     fn from_empty_lines() {
         let storage = Storage::from(vec![]);
         assert_eq!(storage.lines, vec![String::new()]);
+    }
+
+    #[test]
+    fn line_width() {
+        let storage = Storage::from(indoc! {"
+            aeioucsz
+            áéíóúčšž
+            台北1234
+            ＱＲＳ12
+            ｱｲｳ12345
+        "});
+
+        for line in 0..storage.lines() {
+            assert_eq!(storage.line_width(line), 8);
+        }
     }
 
     #[test]

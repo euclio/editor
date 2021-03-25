@@ -401,7 +401,7 @@ mod tests {
 
         buffer.draw(&mut ctx);
 
-        assert_eq!(ctx.screen[(0, 0)].c, '/');
+        assert_eq!(ctx.screen[(0, 0)].c, Some('/'));
         assert!(ctx.screen[(0, 0)].color.is_some());
         assert!(ctx.screen[(0, 1)].color.is_some());
         assert!(ctx.screen[(1, 10)].color.is_some());
@@ -413,7 +413,7 @@ mod tests {
             .map(|viewport| viewport.origin.y += 1);
         buffer.draw(&mut ctx);
 
-        assert_eq!(ctx.screen[(0, 3)].c, 'I');
+        assert_eq!(ctx.screen[(0, 3)].c, Some('I'));
     }
 
     #[test]

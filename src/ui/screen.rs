@@ -2,19 +2,20 @@ use std::fmt::{self, Debug, Write};
 use std::ops::{Index, IndexMut};
 
 use itertools::Itertools;
+use unicode_width::UnicodeWidthChar;
 
 use super::{Bounds, Color, Coordinates, Size};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Cell {
-    pub c: char,
+    pub c: Option<char>,
     pub color: Option<Color>,
 }
 
 impl Default for Cell {
     fn default() -> Self {
         Cell {
-            c: ' ',
+            c: None,
             color: None,
         }
     }
@@ -22,7 +23,10 @@ impl Default for Cell {
 
 impl From<char> for Cell {
     fn from(c: char) -> Self {
-        Cell { c, color: None }
+        Cell {
+            c: Some(c),
+            color: None,
+        }
     }
 }
 
@@ -51,12 +55,20 @@ impl Screen {
     /// Convenience method to write a string starting at a specific coordinate. If the string is
     /// longer than the width of the screen, it is truncated.
     pub fn write(&mut self, Coordinates { y, x, .. }: Coordinates, text: &str) {
-        for (i, c) in text
-            .chars()
-            .enumerate()
-            .take(usize::from(self.size.width - x))
-        {
-            self[(y, x + i as u16)].c = c;
+        let mut offset = 0u16;
+
+        for c in text.chars() {
+            if offset >= self.size.width {
+                break;
+            }
+
+            let width = c.width().unwrap_or(0) as u16; // TODO: Maybe should be 1?
+
+            if width != 0 {
+                self[(y, (x + offset))].c = Some(c);
+            }
+
+            offset += width;
         }
     }
 
@@ -128,6 +140,8 @@ impl Debug for Screen {
 
 #[cfg(test)]
 mod tests {
+    use euclid::size2;
+
     use super::{Bounds, Cell, Color, Coordinates, Screen, Size};
 
     #[test]
@@ -177,12 +191,22 @@ mod tests {
     #[test]
     fn write_too_long() {
         let mut buf = Screen::new(Size::new(2, 1));
-        buf.write(Coordinates::new(0, 0), "hello, world");
+        buf.write(Coordinates::zero(), "hello, world");
 
         assert_eq!(
             buf.iter_rows().next().unwrap().collect::<Vec<_>>(),
             vec![&Cell::from('h'), &Cell::from('e')],
         );
+    }
+
+    #[test]
+    fn write_fullwidth() {
+        let mut buf = Screen::new(size2(6, 1));
+        buf.write(Coordinates::zero(), "ＡＢＣ");
+
+        assert_eq!(buf[(0, 0)], Cell::from('Ａ'));
+        assert_eq!(buf[(0, 1)], Cell::default());
+        assert_eq!(buf[(0, 2)], Cell::from('Ｂ'));
     }
 
     #[test]
